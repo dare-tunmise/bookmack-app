@@ -1,7 +1,12 @@
 // Generates every BookMack icon from one geometric definition of the logo: the app icon, Android
-// adaptive icon layers, splash mark, and favicons for the Expo web build and the web app.
+// adaptive icon layers, splash mark, and favicons for the Expo web build and the website.
 //
-// Run from mobile/: npm run icons (needs rsvg-convert: `brew install librsvg`).
+// Run from the repo root: npm run icons (needs rsvg-convert: `brew install librsvg`).
+//
+// The website's icons are written to dist/web-icons/ rather than into the site itself. They used
+// to be written straight across to ../frontend/public when both lived in one repo; that path does
+// not exist any more, and a build script that writes outside its own repository is a surprise
+// waiting to happen. Copy them over by hand when the mark changes, which is rarely.
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -9,7 +14,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MOBILE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const FRONTEND_PUBLIC = resolve(MOBILE, '../frontend/public');
+// Staged for the website repo rather than written into it; see the note at the top.
+const WEB_ICONS = join(MOBILE, 'dist/web-icons');
 const BRAND = join(MOBILE, 'assets/brand');
 const IMAGES = join(MOBILE, 'assets/images');
 
@@ -118,6 +124,7 @@ const documents = {
 // ---------------------------------------------------------------- output
 
 mkdirSync(BRAND, { recursive: true });
+mkdirSync(WEB_ICONS, { recursive: true });
 const sources = {};
 for (const [name, content] of Object.entries(documents)) {
   sources[name] = join(BRAND, `${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}.svg`);
@@ -130,21 +137,22 @@ const renders = [
   [sources.adaptiveMonochrome, join(IMAGES, 'android-icon-monochrome.png'), 1024],
   [sources.splashMark, join(IMAGES, 'splash-icon.png'), 1024],
   [sources.roundedIcon, join(IMAGES, 'favicon.png'), 48],
-  [sources.roundedIcon, join(FRONTEND_PUBLIC, 'favicon-48.png'), 48],
-  [sources.appIcon, join(FRONTEND_PUBLIC, 'apple-touch-icon.png'), 180]
+  [sources.roundedIcon, join(WEB_ICONS, 'favicon-48.png'), 48],
+  [sources.appIcon, join(WEB_ICONS, 'apple-touch-icon.png'), 180]
 ];
 
 for (const [source, output, width] of renders) {
   // The splash mark isn't square; rsvg-convert keeps its proportions from the width.
   execFileSync('rsvg-convert', ['--width', String(width), '--keep-aspect-ratio', source, '--output', output]);
-  console.log(`wrote ${output.replace(`${resolve(MOBILE, '..')}/`, '')} (${width}px wide)`);
+  console.log(`wrote ${output.replace(`${MOBILE}/`, '')} (${width}px wide)`);
 }
 
-writeFileSync(join(FRONTEND_PUBLIC, 'favicon.svg'), documents.roundedIcon);
-console.log('wrote frontend/public/favicon.svg');
-// The web app's in-page logo: navbar, footer, sign-in form, and dashboard sidebar.
-writeFileSync(resolve(MOBILE, '../frontend/src/assets/bookmack-icon.svg'), documents.roundedIcon);
-console.log('wrote frontend/src/assets/bookmack-icon.svg');
+writeFileSync(join(WEB_ICONS, 'favicon.svg'), documents.roundedIcon);
+console.log('wrote dist/web-icons/favicon.svg');
+// The website's in-page logo: navbar, footer, sign-in form, and dashboard sidebar.
+writeFileSync(join(WEB_ICONS, 'bookmack-icon.svg'), documents.roundedIcon);
+console.log('wrote dist/web-icons/bookmack-icon.svg');
+console.log('  -> copy dist/web-icons/* into the website repo when the mark changes');
 // The app's in-screen logo (src/components/brand-mark.tsx) draws these paths.
 writeFileSync(
   join(MOBILE, 'src/constants/brand-mark.ts'),
@@ -161,5 +169,5 @@ export const BRAND_MARK = {
 } as const;
 `
 );
-console.log('wrote mobile/src/constants/brand-mark.ts');
+console.log('wrote src/constants/brand-mark.ts');
 console.log(`adaptive icon scale: ${ADAPTIVE_SCALE}`);

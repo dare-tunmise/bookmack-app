@@ -1,45 +1,46 @@
 # BookMack mobile app
 
-The BookMack Android app, built with [Expo](https://expo.dev) (React Native, Expo Router, TypeScript). It talks to the backend's `/api/v1`.
+The BookMack Android app, built with [Expo](https://expo.dev) (React Native, Expo Router, TypeScript). It talks to the API at **https://api.bookmack.com**, whose source lives in the `bookmack-api` repository.
 
 ## Run it on your phone
 
-1. **Start the backend** with its `.env` set up:
+1. **Point the app at an API.** Copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_URL`.
+   For everyday work that is just the hosted one:
 
-   ```bash
-   cd ../backend && npm run dev
+   ```
+   EXPO_PUBLIC_API_URL=https://api.bookmack.com
    ```
 
-2. **Point the app at it.** Copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_URL`
-   to `http://<your computer's LAN IP>:<backend PORT>`:
-   - On a phone, `localhost` means the phone itself, so use your computer's LAN IP
-     (on macOS: `ipconfig getifaddr en0`).
-   - Use the `PORT` from `backend/.env` (5000 if it isn't set).
-   - The phone and computer must be on the same Wi-Fi.
+   To work against a local copy instead, run `npm run dev` in the `bookmack-api` repo and use your
+   computer's LAN IP — `localhost` on a phone means the phone itself:
+   - macOS: `ipconfig getifaddr en0`, then `http://<that ip>:5000`.
+   - The phone and computer must be on the same Wi-Fi, and the address changes when the network does.
+   - Check it with `curl http://<ip>:5000/api/v1/openapi.json`, which should return JSON.
 
-   Quick check from your computer: `curl http://<ip>:<port>/api/v1/openapi.json` should return JSON.
-
-3. **Install and start:**
+2. **Install and start:**
 
    ```bash
    npm install
    npm start
    ```
 
-4. **Open it:** install **Expo Go** from the Play Store, then scan the QR code shown in the terminal.
+3. **Open it:** install **Expo Go** from the Play Store, then scan the QR code shown in the terminal.
    Saving a file reloads the app on the phone.
 
 Restart `npm start` after changing `.env.local`: `EXPO_PUBLIC_` values are built into the bundle.
 
-## After backend API changes
+## After API changes
 
-The API client is typed from the backend's OpenAPI spec. Regenerate the types, then fix anything
-`npm run typecheck` reports:
+The API client is typed from the **live** OpenAPI spec at `https://api.bookmack.com/api/v1/openapi.json`,
+so the types describe what is actually deployed rather than whatever happens to be checked out
+somewhere else. Regenerate them, then fix anything `npm run typecheck` reports:
 
 ```bash
-cd ../backend && npm run export:openapi
-cd ../mobile && npm run api:types
+npm run api:types
 ```
+
+Order matters: change the API, push it, wait for Railway to deploy, *then* regenerate here.
+Running this before the deploy silently produces types for the old contract.
 
 ## Layout
 
@@ -93,8 +94,10 @@ the master SVGs to `assets/brand/` and renders:
 - `assets/images/android-icon-foreground.png` and `android-icon-monochrome.png`: Android adaptive
   icon layers, scaled to stay inside the safe zone. The background layer is the lime color in `app.json`.
 - `assets/images/splash-icon.png`: the mark shown on the lime splash screen.
-- `assets/images/favicon.png` (Expo web) and, in `../frontend/public/`, `favicon.svg`,
-  `favicon-48.png`, and `apple-touch-icon.png` for the web app.
+- `assets/images/favicon.png` (Expo web), and the website's icons — `favicon.svg`, `favicon-48.png`,
+  `bookmack-icon.svg` and `apple-touch-icon.png` — staged in `dist/web-icons/`. Copy those into the
+  website repo by hand when the mark changes; the script no longer writes across repositories, and
+  `dist/` is gitignored so they are never committed here.
 
 To change the logo, edit the geometry in the script and run `npm run icons` (needs `rsvg-convert`:
 `brew install librsvg`). The app icon and splash screen only show in a real build (EAS preview or
