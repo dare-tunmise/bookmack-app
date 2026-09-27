@@ -1,4 +1,4 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Drawer } from 'expo-router/drawer';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -12,7 +12,9 @@ import { Bookshelf } from '@/components/bookshelf';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
+import { usePendingRequests } from '@/components/pending-requests';
 import { ReadingList } from '@/components/reading-list';
+import { useSnackbar } from '@/components/snackbar';
 import { Tabs } from '@/components/tabs';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -20,6 +22,7 @@ import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
 
 type Book = Schemas['Book'];
 type ReadingBook = Schemas['ReadingBook'];
+type BookRequest = Schemas['BookRequest'];
 // 'background' reloads without a spinner, e.g. when returning after adding a book.
 type LoadMode = 'initial' | 'refresh' | 'background' | 'more';
 
@@ -52,6 +55,10 @@ export default function LibraryScreen() {
   const [query, setQuery] = useState('');
   const [books, setBooks] = useState<Book[]>([]);
   const [readingRows, setReadingRows] = useState<ReadingBook[]>([]);
+  // Who is waiting, fetched once for the whole tab rather than per card. ReadingBook carries a
+  // count, which is enough to say "someone asked" but not enough to answer them: saying yes needs
+  // the request's id and the borrower.
+  const [pendingRequests, setPendingRequests] = useState<BookRequest[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState<LoadMode | null>('initial');
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +66,10 @@ export default function LibraryScreen() {
   // Adding a book and "what should I read?" both live in the bottom bar now, so this screen asks
   // for them rather than owning them.
   const { openAdd, libraryVersion } = useAppActions();
+  const snackbar = useSnackbar();
+  // The drawer's request badge is counted locally, so answering a request here has to take it off
+  // the badge as well — otherwise it keeps claiming someone is still waiting.
+  const { decrement: decrementPending } = usePendingRequests();
   const [tags, setTags] = useState<{ name: string; count: number }[]>([]);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const loadedOnce = useRef(false);
@@ -79,12 +90,18 @@ export default function LibraryScreen() {
     try {
       if (tab === 'reading') {
         // Its own endpoint, unpaged and unfiltered: this is the handful of books on the go, and
-        // each row needs the last entry and the waiting count alongside the book.
-        const { data, error: apiError } = await api.GET('/books/reading');
+        // each row needs the last entry and the waiting count alongside the book. The pending
+        // requests come with it, in parallel, so a card can name whoever is waiting.
+        const [reading, requests] = await Promise.all([
+          api.GET('/books/reading'),
+          api.GET('/requests', { params: { query: { status: 'pending', limit: 100 } } })
+        ]);
         if (!isCurrent()) return;
-        if (!data) throw toApiError(apiError);
+        if (!reading.data) throw toApiError(reading.error);
 
-        setReadingRows(data.data);
+        setReadingRows(reading.data.data);
+        // A failure here costs the name on a card, not the list, so it is not worth failing over.
+        setPendingRequests(requests.data?.data ?? []);
         setNextCursor(null);
         return;
       }
@@ -188,6 +205,41 @@ export default function LibraryScreen() {
     // Either way: on success this picks up the new entry and re-sorts, and on failure it puts the
     // real page back rather than leaving the row showing something that was never saved.
     load('background');
+  };
+
+  // The oldest pending request for a book, which is whoever has been waiting longest. /requests
+  // comes back newest first, so the last match is the one to answer.
+  const requestFor = (bookId: string) =>
+    pendingRequests.filter((entry) => entry.book?.id === bookId).at(-1) ?? null;
+
+  // Finishing a book is when it becomes free, and when someone waiting can finally be told. Say
+  // yes, then go straight to lending it to them — approving is not the same as handing it over,
+  // so the loan is still made when the book actually moves.
+  const handOver = async (request: BookRequest) => {
+    try {
+      const { data, error: apiError } = await api.POST('/requests/{id}/decision', {
+        params: { path: { id: request.id } },
+        body: { approve: true }
+      });
+      if (!data) throw toApiError(apiError);
+
+      // Only a request that was actually waiting comes off the badge.
+      if (request.status === 'pending') decrementPending();
+      setPendingRequests((current) => current.filter((entry) => entry.id !== request.id));
+      snackbar.show(`${request.borrower?.name ?? 'They'} will hear that you said yes`);
+
+      if (request.book) {
+        router.push({
+          pathname: '/lend',
+          params: {
+            bookId: request.book.id,
+            ...(request.borrower ? { borrowerId: request.borrower.id } : {})
+          }
+        });
+      }
+    } catch (err) {
+      snackbar.show(errorMessage(err));
+    }
   };
 
   // Starting a book from the bar happens while this screen is already on top, so there is no
@@ -300,8 +352,10 @@ export default function LibraryScreen() {
                 `${row.book.title} ${row.book.author}`.toLowerCase().includes(query.toLowerCase()))
               : readingRows
           }
+          requestFor={requestFor}
           onPressBook={setSelectedBook}
           onSetPage={setPage}
+          onHandOver={handOver}
           refreshing={loading === 'refresh'}
           onRefresh={() => load('refresh')}
           // Same trap as the shelf below: without this the first load shows "nothing on the go"

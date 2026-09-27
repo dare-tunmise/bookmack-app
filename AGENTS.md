@@ -29,7 +29,9 @@ The bar carries the handful of things worth a thumb — Library, Requests, a rai
 
 ## Icons
 
-Drawn on a 24×24 grid in `src/components/icon.tsx`. System actions (close, search, check) use conventional shapes so they are recognised instantly; the things only BookMack has are built from the brand mark's geometry. `SOLID` holds filled variants for selected states and `filled` falls back to the outline where there is none — `wanted` has no solid twin **on purpose**, because solid icons are drawn with `stroke="none"` and a silhouette would erase the dashed edge that is the only thing distinguishing it from `library`.
+Drawn on a 24×24 grid in `src/components/icon.tsx`. System actions (close, search, check) use conventional shapes so they are recognised instantly; the things only BookMack has are built from the brand mark's geometry. `SOLID` holds filled variants for selected states and `filled` falls back to the outline where there is none.
+
+**`wanted` is a basket.** It used to be `library` with one slot dashed out — a shelf with a gap where the book you want would stand. Clever, and a poor icon: at 13px, the size the drawer and the wanted screen actually use it, the dash blurs into a solid edge and it reads as an ordinary shelf. A basket is a different object at any size. It also reads as a silhouette, so unlike the dashed shelf it has a `SOLID` twin; the old note explaining why it could never have one no longer applies.
 
 Every icon is generated from one geometric definition: `npm run icons` (needs `rsvg-convert`). The website's favicons are staged in `dist/web-icons/` for copying into the website repo by hand.
 
@@ -47,9 +49,11 @@ There is no "Currently reading" strip above the shelf any more. It was a horizon
 
 ### The reading row (`components/reading-row.tsx`)
 
-- **The scrubber is hand-rolled from `PanResponder` and plain Views, and must stay that way.** Every slider package worth using is a native module, and a native module ships by `eas build`, not `eas update` — it could never reach a phone through the preview channel. Reaching for `@react-native-community/slider` would quietly make this feature undeliverable, the same way Play Billing is.
-- It exists because a three-digit page number is not how anyone knows where they are in a book. Dragging is one gesture and no keyboard; logging used to be seven interactions, and daily things die at three.
-- `PanResponder` closes over its callbacks once, so the live width and page are read through refs. Capture them directly and the control silently keeps using the first render's values for ever.
+- **The page control is a crown, not a slider, and the difference is the whole point.** It was a scrubber along the book's length first: that mapped the absolute touch position to a page, so pressing anywhere *jumped* there — grab the bar at page 18 and you are on 53 before moving a millimetre. A 700-page book across 300 pixels is also two pages per pixel, so no amount of care could land on a chosen page. The crown is relative: where you grab means nothing, only how far you travel, at one page per four pixels. That is why a watch uses one.
+- **Hand-rolled from `PanResponder` and plain Views, and it must stay that way.** Every slider package worth using is a native module, and a native module ships by `eas build`, not `eas update` — it could never reach a phone through the preview channel. Reaching for `@react-native-community/slider` would quietly make this feature undeliverable, the same way Play Billing is.
+- `onStartShouldSetPanResponder` is **false** on purpose: the `+` and `−` at the ends need taps, and only a vertical movement past a few pixels counts as a drag. That is what lets one control be both.
+- `PanResponder` builds its callbacks once, so the live page is read through refs. Capture it directly and the control silently keeps using the first render's value for ever.
+- The progress bar is a **readout**, not an input. It became one the moment the crown took over, and making it draggable again would bring back the jump.
 - **The note is shown here, on return, not in the logging sheet.** You only open that sheet to write the next one, which is the moment the old note is of no use. Coming back to the book is when "Azaro had just come back from the forest" earns its keep.
 - **At most one nudge per row**, in order of what earns the interruption: someone waiting, then nearly finished, then a book going cold (14 days). Three at once is nagging, and a reading app that nags gets deleted. There are deliberately no streaks.
 - Search on this tab filters the rows already loaded, because the endpoint takes no query. The tag chips are hidden there for the same reason — a control that looks live and does nothing is worse than no control.

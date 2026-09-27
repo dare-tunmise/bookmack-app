@@ -1,81 +1,87 @@
 import { useRef, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { PanResponder, Pressable, StyleSheet, View } from 'react-native';
 
 import type { Schemas } from '@/api/client';
 import { BookCover } from '@/components/book-cover';
+import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
+import { Colors, Radius, Spacing } from '@/constants/theme';
 import { formatDate } from '@/lib/loans';
 
 type ReadingBook = Schemas['ReadingBook'];
+type BookRequest = Schemas['BookRequest'];
 
 const COVER = 56;
 const DAY_MS = 24 * 60 * 60 * 1000;
-// A book untouched for this long is not being read, it is sitting there. Two weeks is long enough
-// that a busy fortnight does not get called a stall.
+// A book untouched this long is not being read, it is sitting there. Two weeks is long enough that
+// a busy fortnight does not get called a stall.
 const STALL_DAYS = 14;
 // Close enough to the end that telling someone the book is nearly free is worth doing.
 const NEARLY_DONE_PAGES = 30;
+// Drag friction. One page per four pixels: a full thumb-length travel moves about forty pages, so
+// you can settle on a number rather than fling past it. Big jumps belong in the sheet, where you
+// can type.
+const PIXELS_PER_PAGE = 4;
+// Below this a drag is a tap, and the +/- buttons should get it.
+const DRAG_THRESHOLD = 3;
 
 const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS);
 
-// Drag along the book's length to say roughly where you are.
+// A crown, like the one you set a watch with. Drag it up or down and the page climbs or falls
+// under your thumb; tap the ends to step one page.
 //
-// Deliberately built from PanResponder and plain Views rather than a slider package: every slider
-// worth using is a native module, and a native module ships by `eas build`, not `eas update` — it
-// could never reach a phone through the preview channel. This is the whole point of the control,
-// so it had to be something that can actually be delivered.
+// It replaced a scrubber along the book's length, which was the wrong control twice over. It
+// mapped the absolute touch position to a page, so pressing anywhere *jumped* there — grabbing the
+// bar at page 18 and landing on 53 before moving a millimetre. And a 700-page book across 300
+// pixels is two pages per pixel, so no amount of care could land on a particular page.
 //
-// Reading is the one thing people do daily, and a three-digit number is not how anyone knows where
-// they are in a book. "About two thirds" is.
-function Scrubber({
-  page,
-  total,
-  onCommit
-}: {
-  page: number;
-  total: number;
-  onCommit: (page: number) => void;
-}) {
-  const [width, setWidth] = useState(0);
-  const [dragging, setDragging] = useState<number | null>(null);
-  // PanResponder closes over its callbacks once, so the live values are read through refs rather
-  // than captured at creation — otherwise the first render's width and page are used for ever.
-  const widthRef = useRef(0);
+// This is relative: where you grab means nothing, only how far you travel. That is the difference
+// between a slider and a crown, and it is why a watch uses one.
+function Crown({ page, total, onCommit }: { page: number; total: number; onCommit: (page: number) => void }) {
+  const [draft, setDraft] = useState<number | null>(null);
+
+  const clamp = (value: number) => Math.max(0, Math.min(total, Math.round(value)));
+
+  // PanResponder builds its callbacks once, so everything they read has to come from a ref.
+  // Capturing state directly leaves the control using the first render's values for ever.
   const pageRef = useRef(page);
   pageRef.current = page;
+  const startRef = useRef(page);
+  const draftRef = useRef<number | null>(null);
 
-  const pageAt = (x: number) => {
-    const w = widthRef.current;
-    if (w <= 0) return pageRef.current;
-    const ratio = Math.min(1, Math.max(0, x / w));
-    return Math.round(ratio * total);
+  const setDraftValue = (value: number | null) => {
+    draftRef.current = value;
+    setDraft(value);
   };
 
   const responder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (event) => setDragging(pageAt(event.nativeEvent.locationX)),
-      onPanResponderMove: (event) => setDragging(pageAt(event.nativeEvent.locationX)),
-      onPanResponderRelease: (event) => {
-        const next = pageAt(event.nativeEvent.locationX);
-        setDragging(null);
-        if (next !== pageRef.current) onCommit(next);
+      // Not on touch down: the + and - underneath need taps. Only a real vertical movement is a
+      // drag, which is what lets one control be both.
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dy) > DRAG_THRESHOLD,
+      onPanResponderGrant: () => {
+        startRef.current = pageRef.current;
+        setDraftValue(pageRef.current);
       },
-      onPanResponderTerminate: () => setDragging(null)
+      onPanResponderMove: (_event, gesture) => {
+        // Up is forwards. Screen y grows downwards, hence the negation.
+        setDraftValue(clamp(startRef.current - gesture.dy / PIXELS_PER_PAGE));
+      },
+      onPanResponderRelease: () => {
+        const next = draftRef.current;
+        setDraftValue(null);
+        if (next !== null && next !== pageRef.current) onCommit(next);
+      },
+      onPanResponderTerminate: () => setDraftValue(null)
     })
   ).current;
 
-  const shown = dragging ?? page;
-  const percent = total > 0 ? Math.min(100, Math.round((shown / total) * 100)) : 0;
-  const fill: `${number}%` = `${percent}%`;
-
-  const measure = (event: LayoutChangeEvent) => {
-    const next = event.nativeEvent.layout.width;
-    widthRef.current = next;
-    setWidth(next);
+  const shown = draft ?? page;
+  const step = (by: number) => {
+    const next = clamp(pageRef.current + by);
+    if (next !== pageRef.current) onCommit(next);
   };
 
   return (
@@ -83,28 +89,38 @@ function Scrubber({
       accessibilityRole="adjustable"
       accessibilityLabel="Page you are on"
       accessibilityValue={{ min: 0, max: total, now: shown }}
-      // Generous vertical padding: the track is 6px and a thumb-sized target is not.
-      style={styles.scrubber}
-      onLayout={measure}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(event) => step(event.nativeEvent.actionName === 'increment' ? 1 : -1)}
+      style={styles.crown}
       {...responder.panHandlers}>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: fill }]} />
-        {width > 0 ? <View style={[styles.thumb, { left: Math.max(0, (percent / 100) * width - 8) }]} /> : null}
+      <Pressable accessibilityLabel="A page forward" hitSlop={4} onPress={() => step(1)} style={styles.crownEnd}>
+        <Icon name="plus" color={Colors.textSecondary} size={16} strokeWidth={2.5} />
+      </Pressable>
+
+      <View style={[styles.crownFace, draft !== null && styles.crownFaceActive]}>
+        <ThemedText type="smallBold" style={draft !== null ? styles.crownNumberActive : undefined}>
+          {shown}
+        </ThemedText>
       </View>
-      <ThemedText type="caption" themeColor={dragging === null ? 'textSecondary' : 'text'}>
-        {shown > 0 ? `Page ${shown} of ${total} · ${percent}%` : `${total} pages`}
-      </ThemedText>
+
+      <Pressable accessibilityLabel="A page back" hitSlop={4} onPress={() => step(-1)} style={styles.crownEnd}>
+        <Icon name="minus" color={Colors.textSecondary} size={16} strokeWidth={2.5} />
+      </Pressable>
     </View>
   );
 }
 
 type ReadingRowProps = {
   row: ReadingBook;
+  // The oldest pending request for this book, if anyone has asked for it.
+  request: BookRequest | null;
   onPress: () => void;
   onSetPage: (page: number) => void;
+  // Say yes to whoever is waiting, then go and lend it to them.
+  onHandOver: (request: BookRequest) => void;
 };
 
-export function ReadingRow({ row, onPress, onSetPage }: ReadingRowProps) {
+export function ReadingRow({ row, request, onPress, onSetPage, onHandOver }: ReadingRowProps) {
   const { book, lastRead, waiting } = row;
   const total = book.pageCount ?? null;
   const page = book.currentPage ?? 0;
@@ -113,70 +129,86 @@ export function ReadingRow({ row, onPress, onSetPage }: ReadingRowProps) {
   const stalledFor = lastRead ? daysSince(lastRead.at) : null;
   const stalled = stalledFor !== null && stalledFor >= STALL_DAYS;
   const nearlyDone = left !== null && page > 0 && left <= NEARLY_DONE_PAGES;
+  const percent = total && page > 0 ? Math.min(100, Math.round((page / total) * 100)) : 0;
+  const fill: `${number}%` = `${percent}%`;
+  const asker = request?.borrower?.name ?? 'Someone';
 
   return (
     <View style={styles.row}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${book.title} by ${book.author}`}
-        onPress={onPress}
-        style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
-        <BookCover title={book.title} thumbnail={book.thumbnail} size={COVER} />
-        <View style={styles.headline}>
-          <ThemedText type="smallBold" numberOfLines={2}>
-            {book.title}
-          </ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
-            {book.author}
-          </ThemedText>
-        </View>
-        <Icon name="chevronRight" color={Colors.textSecondary} size={18} />
-      </Pressable>
+      <View style={styles.body}>
+        <View style={styles.main}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${book.title} by ${book.author}`}
+            onPress={onPress}
+            style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
+            <BookCover title={book.title} thumbnail={book.thumbnail} size={COVER} />
+            <View style={styles.headline}>
+              <ThemedText type="smallBold" numberOfLines={2}>
+                {book.title}
+              </ThemedText>
+              <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
+                {book.author}
+              </ThemedText>
+            </View>
+          </Pressable>
 
-      {/* The note, at the moment it is useful: coming back to the book, not while logging. This is
-          the whole reason it is worth writing one. */}
-      {lastRead?.note ? (
-        <View style={styles.note}>
-          <ThemedText type="caption" themeColor="textSecondary">
-            {`Page ${lastRead.page}, ${formatDate(lastRead.at)}`}
-          </ThemedText>
-          <ThemedText type="small" style={styles.noteText}>
-            {lastRead.note}
-          </ThemedText>
-        </View>
-      ) : null}
+          {/* The note, at the moment it is useful: coming back to the book, not while logging. */}
+          {lastRead?.note ? (
+            <View style={styles.note}>
+              <ThemedText type="caption" themeColor="textSecondary">
+                {`Page ${lastRead.page}, ${formatDate(lastRead.at)}`}
+              </ThemedText>
+              <ThemedText type="small" style={styles.noteText}>
+                {lastRead.note}
+              </ThemedText>
+            </View>
+          ) : null}
 
-      {total ? (
-        <Scrubber page={page} total={total} onCommit={onSetPage} />
-      ) : (
-        <ThemedText type="caption" themeColor="textSecondary">
-          No page count for this copy, so there is nothing to drag along. Open it to type a page.
+          {total ? (
+            <View style={styles.progress}>
+              <View style={styles.track}>
+                <View style={[styles.fill, { width: fill }]} />
+              </View>
+              <ThemedText type="caption" themeColor="textSecondary">
+                {page > 0 ? `${percent}% · page ${page} of ${total}` : `${total} pages`}
+              </ThemedText>
+            </View>
+          ) : (
+            <ThemedText type="caption" themeColor="textSecondary">
+              No page count for this copy. Open it to set one.
+            </ThemedText>
+          )}
+        </View>
+
+        {total ? <Crown page={page} total={total} onCommit={onSetPage} /> : null}
+      </View>
+
+      {/* At most one nudge, in the order of what earns the interruption: someone waiting for a book
+          you are about to finish, then someone waiting, then nearly done, then going cold. */}
+      {request && nearlyDone ? (
+        <View style={styles.handOver}>
+          <ThemedText type="caption" themeColor="brand">
+            {`${left} pages to go, and ${asker} is waiting for it.`}
+          </ThemedText>
+          <Button title={`Tell ${asker} it's nearly free`} variant="secondary" onPress={() => onHandOver(request)} />
+        </View>
+      ) : request ? (
+        <ThemedText type="caption" themeColor="brand">
+          {`${asker} has asked to borrow this.`}
         </ThemedText>
-      )}
-
-      {/* At most one nudge, in order of how much it earns the interruption: someone waiting beats
-          nearly finished, which beats a book going cold. Three lines at once is nagging. */}
-      {waiting > 0 && nearlyDone ? (
-        <Nudge
-          tone="brand"
-          text={`${left} pages to go, and ${waiting === 1 ? 'someone is' : `${waiting} people are`} waiting for it.`}
-        />
       ) : waiting > 0 ? (
-        <Nudge tone="brand" text={`${waiting === 1 ? 'Someone has' : `${waiting} people have`} asked to borrow this.`} />
+        <ThemedText type="caption" themeColor="brand">
+          {`${waiting === 1 ? 'Someone has' : `${waiting} people have`} asked to borrow this.`}
+        </ThemedText>
       ) : nearlyDone ? (
-        <Nudge tone="brand" text={`${left} pages to go.`} />
+        <ThemedText type="caption" themeColor="brand">{`${left} pages to go.`}</ThemedText>
       ) : stalled ? (
-        <Nudge tone="muted" text={`Last opened ${formatDate(lastRead!.at)}. Still reading it?`} />
+        <ThemedText type="caption" themeColor="textSecondary">
+          {`Last opened ${formatDate(lastRead!.at)}. Still reading it?`}
+        </ThemedText>
       ) : null}
     </View>
-  );
-}
-
-function Nudge({ text, tone }: { text: string; tone: 'brand' | 'muted' }) {
-  return (
-    <ThemedText type="caption" themeColor={tone === 'brand' ? 'brand' : 'textSecondary'}>
-      {text}
-    </ThemedText>
   );
 }
 
@@ -188,6 +220,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.surface
+  },
+  body: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three
+  },
+  main: {
+    flex: 1,
+    gap: Spacing.two
   },
   head: {
     flexDirection: 'row',
@@ -210,13 +251,11 @@ const styles = StyleSheet.create({
   noteText: {
     fontStyle: 'italic'
   },
-  scrubber: {
-    gap: Spacing.one,
-    paddingVertical: Spacing.one
+  progress: {
+    gap: Spacing.one
   },
   track: {
     height: 6,
-    justifyContent: 'center',
     borderRadius: Radius.pill,
     backgroundColor: Colors.brandTint
   },
@@ -225,13 +264,38 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     backgroundColor: Colors.brand
   },
-  thumb: {
-    position: 'absolute',
-    width: 16,
-    height: 16,
+  // A column you can put a thumb on: the ends step a page, the middle is the grip.
+  crown: {
+    width: 46,
+    alignItems: 'center',
     borderRadius: Radius.pill,
-    borderWidth: 2,
-    borderColor: Colors.surface,
-    backgroundColor: Colors.brand
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    paddingVertical: Spacing.one
+  },
+  crownEnd: {
+    height: 32,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  crownFace: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.one,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: Colors.border
+  },
+  crownFaceActive: {
+    backgroundColor: Colors.brandTint
+  },
+  crownNumberActive: {
+    color: Colors.brand
+  },
+  handOver: {
+    gap: Spacing.two
   }
 });

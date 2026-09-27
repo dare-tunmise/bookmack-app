@@ -53,27 +53,20 @@ const ICONS = {
       <Line x1="2.5" y1="21.25" x2="21.5" y2="21.25" />
     </>
   ),
-  // The same shelf with a gap in it: two books you have, and a dashed outline where the one you
-  // are after would stand. Built from `library`'s own geometry so it reads as its sibling, with
-  // the empty slot on the same 17° lean as the cut in the logo.
+  // A basket: books you mean to get, rather than books you have.
   //
-  // Deliberately has no SOLID twin. Solid icons are drawn with stroke="none", which would erase
-  // the dashed edge — the only thing separating this from `library` — so `filled` falls back to
-  // this outline, which is what that fallback is for.
+  // It replaced a dashed version of `library` — a shelf with one slot outlined empty. That was a
+  // clever drawing and a poor icon: at 13px, where the drawer and the wanted screen use it, the
+  // dash blurred into a solid edge and it read as an ordinary shelf. A basket is a different
+  // object at any size, which is the whole job.
+  //
+  // It also reads as a silhouette, so unlike the dashed shelf it can have a SOLID twin.
   wanted: (
     <>
-      <Rect x="4" y="7.5" width="4.25" height="12.5" rx="1.25" />
-      <Rect x="9.25" y="5" width="4.25" height="15" rx="1.25" />
-      <Rect
-        x="14.75"
-        y="7"
-        width="4.25"
-        height="13"
-        rx="1.25"
-        transform="rotate(17 16.875 20)"
-        strokeDasharray="2.5 2.5"
-      />
-      <Line x1="2.5" y1="21.25" x2="21.5" y2="21.25" />
+      <Path d="M8.5 8.5V6.75a3.5 3.5 0 0 1 7 0V8.5" />
+      <Path d="M3.25 8.5h17.5l-1.6 10.1a2.5 2.5 0 0 1-2.47 2.15H7.32a2.5 2.5 0 0 1-2.47-2.15z" />
+      <Line x1="9.75" y1="12.5" x2="10.25" y2="17" />
+      <Line x1="14.25" y1="12.5" x2="13.75" y2="17" />
     </>
   ),
   // A book going out. Its mirror image is `requests`, a book being asked for.
@@ -148,6 +141,9 @@ const ICONS = {
       <Line x1="5" y1="12" x2="19" y2="12" />
     </>
   ),
+  // Exactly `plus` without its upright, so the two are the same width when stacked as a pair —
+  // which is the only place either is used together, on the reading crown.
+  minus: <Line x1="5" y1="12" x2="19" y2="12" />,
   eye: (
     <>
       <Path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
@@ -329,6 +325,14 @@ const SOLID = {
       <Rect x="16.75" y="9.5" width="2.5" height="11" rx="1.25" />
       <Rect x="10.75" y="3.5" width="2.5" height="17" rx="1.25" />
       <Rect x="4.75" y="13.5" width="2.5" height="7" rx="1.25" />
+    </>
+  ),
+  // The basket filled, with the handle left as an open stroke-width gap so it still reads as a
+  // handle rather than a lump. The old dashed-shelf `wanted` could not have one of these.
+  wanted: (
+    <>
+      <Path d="M12 2.5a4.25 4.25 0 0 1 4.25 4.25V8.5h-1.5V6.75a2.75 2.75 0 0 0-5.5 0V8.5h-1.5V6.75A4.25 4.25 0 0 1 12 2.5z" />
+      <Path d="M3.25 7.75h17.5a.75.75 0 0 1 .74.87l-1.6 10.1a3.25 3.25 0 0 1-3.21 2.78H7.32a3.25 3.25 0 0 1-3.21-2.78L2.51 8.62a.75.75 0 0 1 .74-.87zm6.13 4.63a.75.75 0 0 0-1.5.17l.5 4.5a.75.75 0 0 0 1.5-.16zm5.24 0-.5 4.51a.75.75 0 0 0 1.5.16l.5-4.5a.75.75 0 0 0-1.5-.17z" />
     </>
   )
 } satisfies Partial<Record<IconName, ReactElement>>;
