@@ -35,7 +35,13 @@ Every icon is generated from one geometric definition: `npm run icons` (needs `r
 
 ## Reading
 
-The details sheet shows a progress bar driven by **what is typed, not what is saved**, so the bar moves under your thumb — that immediate answer is the whole reason to bother entering a page. Alongside it, a note for next time, and the trail of what actually happened.
+Reading has **its own sheet** (`components/reading-sheet.tsx`): the status control, the note you left last time, the page field, the progress bar, give up / read again, and the trail. It used to be all of that wedged into the details sheet between the rating and the loan card, which is how that sheet reached 764 lines. Reading is the part you return to; publisher and ISBN are read once.
+
+What the details sheet keeps is a single row — state, progress bar, "Page 120 of 500" — that opens the sheet. **That row's bar follows what is saved; the sheet's own bar follows what is typed**, so it moves under your thumb as you enter a page. That immediate answer is the whole reason to bother typing one, and there is nothing to type on a row.
+
+The reading sheet opens **over** the details sheet rather than replacing it, which is the same modal nesting the delete confirmation in there already relies on.
+
+The library's **Reading tab** and the home "Currently reading" strip both ask the API for `readingStatus=reading,rereading` — a book being reread is being read. The strip is hidden on the Reading tab, since that tab is the same list in full.
 
 Pace is deliberately narrow: it counts **only pages the reader reported**, and **only the current pass**. Finishing records the book's last page — a jump nobody sat and read — and counting it reported "about 324 pages a week" for someone who ticked a book off a week after starting it. A re-read starts again from zero, so entries before a restart describe a different journey.
 
@@ -44,5 +50,5 @@ Pace is deliberately narrow: it counts **only pages the reader reported**, and *
 - [ ] **Premium can't be bought yet.** The server half shipped 26 Sep 2026 (`POST /billing/play/purchase`, the RTDN webhook, verification against Google, all in `bookmack-api`). Missing here is the purchase flow, which needs a **native billing module** — so it ships by `eas build`, not `eas update`, and cannot be exercised until the app is on a Play track. Every surface still says "coming soon".
   - Blocked on a Google Play Console account. A new personal account must run a closed test with **12 testers opted in continuously for 14 days** before it can apply for production access, and review then takes about a week — roughly three weeks that no code shortens.
   - When the purchase flow lands it must handle `400 MANAGED_BY_GOOGLE_PLAY` from `POST /billing/cancel` by sending the user to the Play Store, not showing it as an error: Google requires Play subscriptions to be cancelled there.
-- [ ] **Re-reads don't appear in the home "Currently reading" strip.** It queries a single `readingStatus`, and widening it means reworking how `UNREAD` is handled in the API's `buildBookFilter`. Verified 26 Sep 2026.
+- [x] **Re-reads don't appear in the home "Currently reading" strip.** Fixed 27 Sep 2026. `GET /books?readingStatus=` now takes a comma-separated list, so the strip and the Reading tab both ask for `reading,rereading`. The `UNREAD` handling that made this awkward is described in `bookmack-api`'s CLAUDE.md: `unread` has to match books with no `readingStatus` field at all, and that `null` must not leak into any other filter.
 - [ ] No automated tests. `npm run typecheck` is the only gate, so the scanner and purchase flows are unverified except by hand.

@@ -904,6 +904,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/billing/play/purchase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hand in a Google Play purchase token to activate Premium */
+        post: operations["registerPlayPurchase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/billing/cancel": {
         parameters: {
             query?: never;
@@ -2076,7 +2093,8 @@ export interface operations {
                 category?: string;
                 author?: string;
                 status?: "Available" | "Loaned" | "Lost";
-                readingStatus?: "unread" | "reading" | "read" | "abandoned" | "rereading";
+                /** @description Comma-separated; matches books in any of these reading states */
+                readingStatus?: string;
                 /** @description Comma-separated; matches books with any of these tags */
                 tags?: string;
                 sort?: "-createdAt" | "createdAt" | "title" | "-title" | "author" | "-author";
@@ -3705,6 +3723,39 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    registerPlayPurchase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The token Google Play returns after a purchase. It is the only thing taken from the client: the product, the state and the expiry are all read back from Google. */
+                    purchaseToken: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Billing summary after recording the purchase. 409 PURCHASE_ALREADY_LINKED when the token belongs to another account, 400 UNKNOWN_PRODUCT when it is not Premium */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BillingSummary"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     cancelSubscription: {
         parameters: {
             query?: never;
@@ -3714,7 +3765,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Billing summary after cancelling */
+            /** @description Billing summary after cancelling. 400 MANAGED_BY_GOOGLE_PLAY when the subscription is billed by Play, which Google requires to be cancelled in the Play Store — clients should send the user there rather than showing it as a failure */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -30,7 +30,9 @@ export function CurrentlyReading({ onPressBook, reloadKey = 0 }: CurrentlyReadin
   const load = useCallback(() => {
     let cancelled = false;
     api
-      .GET('/books', { params: { query: { readingStatus: 'reading', limit: MAX_SHOWN } } })
+      // Both states: a book being reread is being read. Asking for 'reading' alone is what kept
+      // re-reads out of this strip.
+      .GET('/books', { params: { query: { readingStatus: 'reading,rereading', limit: MAX_SHOWN } } })
       .then(({ data }) => {
         if (!cancelled && data) setBooks(data.data);
       })

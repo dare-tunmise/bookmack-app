@@ -28,7 +28,8 @@ const SEARCH_DEBOUNCE_MS = 300;
 const LIBRARY_TABS = [
   { key: 'recent', label: 'Recent' },
   { key: 'all', label: 'My books' },
-  { key: 'lent', label: 'Lent out' }
+  { key: 'lent', label: 'Lent out' },
+  { key: 'reading', label: 'Reading' }
 ] as const;
 
 type LibraryTab = (typeof LIBRARY_TABS)[number]['key'];
@@ -36,8 +37,11 @@ type LibraryTab = (typeof LIBRARY_TABS)[number]['key'];
 const TAB_QUERIES = {
   recent: { sort: '-createdAt' },
   all: { sort: 'title' },
-  lent: { sort: '-createdAt', status: 'Loaned' }
-} as const satisfies Record<LibraryTab, { sort: string; status?: string }>;
+  lent: { sort: '-createdAt', status: 'Loaned' },
+  // Both states: a book being reread is being read, and asking for 'reading' alone used to hide
+  // it. The API takes a comma-separated list for exactly this.
+  reading: { sort: '-createdAt', readingStatus: 'reading,rereading' }
+} as const satisfies Record<LibraryTab, { sort: string; status?: string; readingStatus?: string }>;
 
 export default function LibraryScreen() {
   const [tab, setTab] = useState<LibraryTab>('recent');
@@ -173,6 +177,12 @@ export default function LibraryScreen() {
     <EmptyState seed="no-matches" title="No matches" message={`No books match "${query}".`} />
   ) : tab === 'lent' ? (
     <EmptyState seed="nothing-lent" title="Nothing lent out" message="Books you lend to someone show up here." />
+  ) : tab === 'reading' ? (
+    <EmptyState
+      seed="nothing-reading"
+      title="Nothing on the go"
+      message="Start a book and it turns up here, with the page you're on."
+    />
   ) : (
     <EmptyState
       seed="empty-library"
@@ -244,7 +254,11 @@ export default function LibraryScreen() {
         </ScrollView>
       ) : null}
 
-      <CurrentlyReading onPressBook={setSelectedBook} reloadKey={readingVersion} />
+      {/* Hidden on the Reading tab: that tab is this list in full, so the strip would only say
+          the same thing twice, above itself. */}
+      {tab === 'reading' ? null : (
+        <CurrentlyReading onPressBook={setSelectedBook} reloadKey={readingVersion} />
+      )}
 
       <Bookshelf
         books={books}
