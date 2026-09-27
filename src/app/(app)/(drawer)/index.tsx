@@ -12,12 +12,14 @@ import { Bookshelf } from '@/components/bookshelf';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
+import { ReadingList } from '@/components/reading-list';
 import { Tabs } from '@/components/tabs';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
 
 type Book = Schemas['Book'];
+type ReadingBook = Schemas['ReadingBook'];
 // 'background' reloads without a spinner, e.g. when returning after adding a book.
 type LoadMode = 'initial' | 'refresh' | 'background' | 'more';
 
@@ -32,15 +34,16 @@ const LIBRARY_TABS = [
 ] as const;
 
 type LibraryTab = (typeof LIBRARY_TABS)[number]['key'];
+// Every tab but Reading is a slice of the shelf, fetched from /books. Reading has its own
+// endpoint, because a row there needs the note left last time and who is waiting, neither of
+// which the book list carries.
+type ShelfTab = Exclude<LibraryTab, 'reading'>;
 
 const TAB_QUERIES = {
   recent: { sort: '-createdAt' },
   all: { sort: 'title' },
-  lent: { sort: '-createdAt', status: 'Loaned' },
-  // Both states: a book being reread is being read, and asking for 'reading' alone used to hide
-  // it. The API takes a comma-separated list for exactly this.
-  reading: { sort: '-createdAt', readingStatus: 'reading,rereading' }
-} as const satisfies Record<LibraryTab, { sort: string; status?: string; readingStatus?: string }>;
+  lent: { sort: '-createdAt', status: 'Loaned' }
+} as const satisfies Record<ShelfTab, { sort: string; status?: string }>;
 
 export default function LibraryScreen() {
   const [tab, setTab] = useState<LibraryTab>('recent');
@@ -48,6 +51,7 @@ export default function LibraryScreen() {
   const [searchText, setSearchText] = useState('');
   const [query, setQuery] = useState('');
   const [books, setBooks] = useState<Book[]>([]);
+  const [readingRows, setReadingRows] = useState<ReadingBook[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState<LoadMode | null>('initial');
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +77,18 @@ export default function LibraryScreen() {
     setLoading(mode);
     setError(null);
     try {
+      if (tab === 'reading') {
+        // Its own endpoint, unpaged and unfiltered: this is the handful of books on the go, and
+        // each row needs the last entry and the waiting count alongside the book.
+        const { data, error: apiError } = await api.GET('/books/reading');
+        if (!isCurrent()) return;
+        if (!data) throw toApiError(apiError);
+
+        setReadingRows(data.data);
+        setNextCursor(null);
+        return;
+      }
+
       const { data, error: apiError } = await api.GET('/books', {
         params: {
           query: {
@@ -138,6 +154,7 @@ export default function LibraryScreen() {
     if (next === tab) return;
     setTab(next);
     setBooks([]);
+    setReadingRows([]);
     setNextCursor(null);
     setError(null);
     setLoading('initial');
@@ -150,6 +167,27 @@ export default function LibraryScreen() {
 
   const loadMore = () => {
     if (nextCursor && !loading && !error) load('more', nextCursor);
+  };
+
+  // Dragging the scrubber has already moved the bar under the reader's thumb, so the row is
+  // updated straight away and the reload only confirms it. Waiting for the round trip would make
+  // the control feel broken on a slow connection, which is the opposite of the point.
+  const setPage = async (book: Book, page: number) => {
+    setReadingRows((rows) =>
+      rows.map((row) => (row.book.id === book.id ? { ...row, book: { ...row.book, currentPage: page } } : row))
+    );
+    try {
+      const { data, error: apiError } = await api.PATCH('/books/{id}', {
+        params: { path: { id: book.id } },
+        body: { currentPage: page }
+      });
+      if (!data) throw toApiError(apiError);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+    // Either way: on success this picks up the new entry and re-sorts, and on failure it puts the
+    // real page back rather than leaving the row showing something that was never saved.
+    load('background');
   };
 
   // Starting a book from the bar happens while this screen is already on top, so there is no
@@ -233,7 +271,9 @@ export default function LibraryScreen() {
 
       <Tabs tabs={LIBRARY_TABS} value={tab} onChange={changeTab} />
 
-      {tags.length > 0 ? (
+      {/* Hidden on the Reading tab: /books/reading takes no tag filter, so the chips would look
+          live and do nothing. */}
+      {tags.length > 0 && tab !== 'reading' ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -250,6 +290,26 @@ export default function LibraryScreen() {
         </ScrollView>
       ) : null}
 
+      {tab === 'reading' ? (
+        <ReadingList
+          // The endpoint takes no search term, so the box filters the list it already has. It is
+          // a handful of books, and a search control that quietly does nothing is worse.
+          rows={
+            query
+              ? readingRows.filter((row) =>
+                `${row.book.title} ${row.book.author}`.toLowerCase().includes(query.toLowerCase()))
+              : readingRows
+          }
+          onPressBook={setSelectedBook}
+          onSetPage={setPage}
+          refreshing={loading === 'refresh'}
+          onRefresh={() => load('refresh')}
+          // Same trap as the shelf below: without this the first load shows "nothing on the go"
+          // until the response lands.
+          empty={readingRows.length === 0 && loading !== null ? null : emptyShelf}
+          bottomInset={Spacing.four}
+        />
+      ) : (
       <Bookshelf
         books={books}
         onPressBook={setSelectedBook}
@@ -273,6 +333,8 @@ export default function LibraryScreen() {
         // The bar takes its own strip of the screen, so the shelf only needs breathing room.
         bottomInset={Spacing.four}
       />
+      )}
+
       <BookDetailsSheet
         book={selectedBook}
         onClose={() => setSelectedBook(null)}

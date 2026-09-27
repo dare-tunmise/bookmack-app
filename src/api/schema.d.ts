@@ -331,6 +331,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/books/reading": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Books you are in the middle of, with where you left off and who is waiting */
+        get: operations["listBooksInProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/books/ask": {
         parameters: {
             query?: never;
@@ -1168,6 +1185,27 @@ export interface components {
                 count: number;
             }[];
         };
+        ReadingBook: {
+            book: components["schemas"]["Book"];
+            /** @description The newest entry, or null for a book started before this was recorded */
+            lastRead: components["schemas"]["ReadingEntry"] | null;
+            /** @description People with a pending request for this book */
+            waiting: number;
+        };
+        ReadingEntry: {
+            id: string;
+            /** @description The page reached, not the pages added */
+            page: number;
+            /**
+             * @description Why the entry exists: a deliberate update, or the jump implied by starting, finishing or starting again
+             * @enum {string}
+             */
+            source: "progress" | "started" | "finished" | "restarted";
+            /** @description What the reader left themselves for next time */
+            note: string | null;
+            /** Format: date-time */
+            at: string;
+        };
         AskResult: {
             /** @description How the question was read, so a thin answer can be explained */
             interpretation: {
@@ -1192,20 +1230,6 @@ export interface components {
                 /** @description What earned this match, from the book itself */
                 reason: string;
             }[];
-        };
-        ReadingEntry: {
-            id: string;
-            /** @description The page reached, not the pages added */
-            page: number;
-            /**
-             * @description Why the entry exists: a deliberate update, or the jump implied by starting, finishing or starting again
-             * @enum {string}
-             */
-            source: "progress" | "started" | "finished" | "restarted";
-            /** @description What the reader left themselves for next time */
-            note: string | null;
-            /** Format: date-time */
-            at: string;
         };
         /** @description A catalog match, not yet in the collection. Add it with POST /books (author: authors joined with ", "; isbn: isbn13; category: first of categories). */
         BookCandidate: {
@@ -2277,6 +2301,31 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["BookFacets"];
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listBooksInProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unpaged: the handful of books on the go, whatever was read most recently first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReadingBook"][];
                     };
                 };
             };

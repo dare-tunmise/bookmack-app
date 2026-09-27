@@ -41,9 +41,18 @@ What the details sheet keeps is a single row — state, progress bar, "Page 120 
 
 The reading sheet opens **over** the details sheet rather than replacing it, which is the same modal nesting the delete confirmation in there already relies on.
 
-The library's **Reading tab** asks the API for `readingStatus=reading,rereading` — a book being reread is being read.
+The library's **Reading tab** calls `GET /books/reading`, not the book list. A row needs the page you reached, the note you left there, and whether anyone is waiting — one call carries all three, where the list plus a history request per book would be eleven round trips for five books.
 
 There is no "Currently reading" strip above the shelf any more. It was a horizontal row of covers on every tab, saying the same thing the Reading tab now says in full, and it pushed the shelf down on the three tabs that had nothing to do with reading. The tab replaced it; `components/currently-reading.tsx` was deleted with it.
+
+### The reading row (`components/reading-row.tsx`)
+
+- **The scrubber is hand-rolled from `PanResponder` and plain Views, and must stay that way.** Every slider package worth using is a native module, and a native module ships by `eas build`, not `eas update` — it could never reach a phone through the preview channel. Reaching for `@react-native-community/slider` would quietly make this feature undeliverable, the same way Play Billing is.
+- It exists because a three-digit page number is not how anyone knows where they are in a book. Dragging is one gesture and no keyboard; logging used to be seven interactions, and daily things die at three.
+- `PanResponder` closes over its callbacks once, so the live width and page are read through refs. Capture them directly and the control silently keeps using the first render's values for ever.
+- **The note is shown here, on return, not in the logging sheet.** You only open that sheet to write the next one, which is the moment the old note is of no use. Coming back to the book is when "Azaro had just come back from the forest" earns its keep.
+- **At most one nudge per row**, in order of what earns the interruption: someone waiting, then nearly finished, then a book going cold (14 days). Three at once is nagging, and a reading app that nags gets deleted. There are deliberately no streaks.
+- Search on this tab filters the rows already loaded, because the endpoint takes no query. The tag chips are hidden there for the same reason — a control that looks live and does nothing is worse than no control.
 
 Pace is deliberately narrow: it counts **only pages the reader reported**, and **only the current pass**. Finishing records the book's last page — a jump nobody sat and read — and counting it reported "about 324 pages a week" for someone who ticked a book off a week after starting it. A re-read starts again from zero, so entries before a restart describe a different journey.
 
