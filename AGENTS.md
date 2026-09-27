@@ -41,7 +41,9 @@ What the details sheet keeps is a single row — state, progress bar, "Page 120 
 
 The reading sheet opens **over** the details sheet rather than replacing it, which is the same modal nesting the delete confirmation in there already relies on.
 
-The library's **Reading tab** and the home "Currently reading" strip both ask the API for `readingStatus=reading,rereading` — a book being reread is being read. The strip is hidden on the Reading tab, since that tab is the same list in full.
+The library's **Reading tab** asks the API for `readingStatus=reading,rereading` — a book being reread is being read.
+
+There is no "Currently reading" strip above the shelf any more. It was a horizontal row of covers on every tab, saying the same thing the Reading tab now says in full, and it pushed the shelf down on the three tabs that had nothing to do with reading. The tab replaced it; `components/currently-reading.tsx` was deleted with it.
 
 Pace is deliberately narrow: it counts **only pages the reader reported**, and **only the current pass**. Finishing records the book's last page — a jump nobody sat and read — and counting it reported "about 324 pages a week" for someone who ticked a book off a week after starting it. A re-read starts again from zero, so entries before a restart describe a different journey.
 
@@ -50,5 +52,5 @@ Pace is deliberately narrow: it counts **only pages the reader reported**, and *
 - [ ] **Premium can't be bought yet.** The server half shipped 26 Sep 2026 (`POST /billing/play/purchase`, the RTDN webhook, verification against Google, all in `bookmack-api`). Missing here is the purchase flow, which needs a **native billing module** — so it ships by `eas build`, not `eas update`, and cannot be exercised until the app is on a Play track. Every surface still says "coming soon".
   - Blocked on a Google Play Console account. A new personal account must run a closed test with **12 testers opted in continuously for 14 days** before it can apply for production access, and review then takes about a week — roughly three weeks that no code shortens.
   - When the purchase flow lands it must handle `400 MANAGED_BY_GOOGLE_PLAY` from `POST /billing/cancel` by sending the user to the Play Store, not showing it as an error: Google requires Play subscriptions to be cancelled there.
-- [x] **Re-reads don't appear in the home "Currently reading" strip.** Fixed 27 Sep 2026. `GET /books?readingStatus=` now takes a comma-separated list, so the strip and the Reading tab both ask for `reading,rereading`. The `UNREAD` handling that made this awkward is described in `bookmack-api`'s CLAUDE.md: `unread` has to match books with no `readingStatus` field at all, and that `null` must not leak into any other filter.
+- [x] **Re-reads don't appear in the home "Currently reading" strip.** Fixed 27 Sep 2026, then the strip itself was removed in favour of the Reading tab. `GET /books?readingStatus=` takes a comma-separated list, and the tab asks for `reading,rereading`. The `UNREAD` handling that made this awkward is described in `bookmack-api`'s CLAUDE.md: `unread` has to match books with no `readingStatus` field at all, and that `null` must not leak into any other filter.
 - [ ] No automated tests. `npm run typecheck` is the only gate, so the scanner and purchase flows are unverified except by hand.

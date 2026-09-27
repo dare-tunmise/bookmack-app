@@ -11,7 +11,6 @@ import { BookDetailsSheet } from '@/components/book-details-sheet';
 import { Bookshelf } from '@/components/bookshelf';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
-import { CurrentlyReading } from '@/components/currently-reading';
 import { EmptyState } from '@/components/empty-state';
 import { Tabs } from '@/components/tabs';
 import { ThemedText } from '@/components/themed-text';
@@ -28,8 +27,8 @@ const SEARCH_DEBOUNCE_MS = 300;
 const LIBRARY_TABS = [
   { key: 'recent', label: 'Recent' },
   { key: 'all', label: 'My books' },
-  { key: 'lent', label: 'Lent out' },
-  { key: 'reading', label: 'Reading' }
+  { key: 'reading', label: 'Reading' },
+  { key: 'lent', label: 'Lent out' }
 ] as const;
 
 type LibraryTab = (typeof LIBRARY_TABS)[number]['key'];
@@ -58,8 +57,6 @@ export default function LibraryScreen() {
   const { openAdd, libraryVersion } = useAppActions();
   const [tags, setTags] = useState<{ name: string; count: number }[]>([]);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  // Bumped when a book changes, so the reading strip reloads with the shelf.
-  const [readingVersion, setReadingVersion] = useState(0);
   const loadedOnce = useRef(false);
   // Responses from a previous tab or search are ignored once a newer request starts.
   const latestRequest = useRef(0);
@@ -161,7 +158,6 @@ export default function LibraryScreen() {
   useEffect(() => {
     if (libraryVersion === handledVersion.current) return;
     handledVersion.current = libraryVersion;
-    setReadingVersion((version) => version + 1);
     load('background');
   }, [libraryVersion, load]);
 
@@ -254,12 +250,6 @@ export default function LibraryScreen() {
         </ScrollView>
       ) : null}
 
-      {/* Hidden on the Reading tab: that tab is this list in full, so the strip would only say
-          the same thing twice, above itself. */}
-      {tab === 'reading' ? null : (
-        <CurrentlyReading onPressBook={setSelectedBook} reloadKey={readingVersion} />
-      )}
-
       <Bookshelf
         books={books}
         onPressBook={setSelectedBook}
@@ -288,12 +278,10 @@ export default function LibraryScreen() {
         onClose={() => setSelectedBook(null)}
         onChanged={(book) => {
           setSelectedBook(book);
-          setReadingVersion((version) => version + 1);
           load('background');
         }}
         onDeleted={() => {
           setSelectedBook(null);
-          setReadingVersion((version) => version + 1);
           load('background');
         }}
       />

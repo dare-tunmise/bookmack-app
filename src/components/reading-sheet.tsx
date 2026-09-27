@@ -213,6 +213,11 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
     const trimmed = page.trim();
     const value = trimmed === '' ? null : Number(trimmed);
     if (value !== null && !Number.isInteger(value)) return;
+    // A page before the start, or past the last one, is a typo rather than progress. Neither is
+    // left to the server: it rejects a negative page with a 400 the reader did not cause, and it
+    // accepts one past the end without complaint, which then saves nonsense.
+    if (value !== null && value < 0) return;
+    if (value !== null && book.pageCount != null && value > book.pageCount) return;
 
     const noteText = note.trim();
     const pageChanged = value !== (book.currentPage ?? null);
@@ -250,7 +255,11 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
   const typedPage = Number(page.trim());
   const pagesIn = Number.isFinite(typedPage) && typedPage > 0 ? Math.floor(typedPage) : 0;
   const total = book.pageCount ?? null;
+  // Typed past the last page. Worth saying out loud rather than silently clamping: the number in
+  // the field is what the reader believes, and correcting it behind their back hides the typo.
+  const pastEnd = total !== null && pagesIn > total;
   const percent = total ? Math.min(100, Math.round((pagesIn / total) * 100)) : 0;
+  const pagesToGo = total ? Math.max(0, total - pagesIn) : 0;
   const fillWidth: `${number}%` = `${percent}%`;
 
   const extendedLabel = EXTENDED_LABELS[readingStatus];
@@ -292,12 +301,18 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
           <TextField
             label="Page you're on"
             value={page}
-            onChangeText={setPage}
+            // Digits only, stripped as you type. number-pad still offers a minus on some Android
+            // keyboards, and a negative page is not a thing — better to make it untypeable than
+            // to explain it afterwards.
+            onChangeText={(text) => setPage(text.replace(/[^0-9]/g, ''))}
             onBlur={saveReading}
             keyboardType="number-pad"
             returnKeyType="done"
             onSubmitEditing={saveReading}
             hint={total ? `of ${total}` : 'Optional'}
+            // The field carries its own error — red border, message in place — rather than a
+            // separate line underneath it.
+            error={pastEnd ? `This book has ${total} pages, so there is no page ${pagesIn}.` : null}
           />
           {total ? (
             <View style={styles.progress}>
@@ -305,7 +320,7 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
                 <View style={[styles.fill, { width: fillWidth }]} />
               </View>
               <ThemedText type="small" themeColor="textSecondary">
-                {pagesIn > 0 ? `${percent}% · ${total - pagesIn} pages to go` : `${total} pages`}
+                {pagesIn > 0 ? `${percent}% · ${pagesToGo} pages to go` : `${total} pages`}
               </ThemedText>
             </View>
           ) : null}
