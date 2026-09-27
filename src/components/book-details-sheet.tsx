@@ -215,7 +215,12 @@ function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) 
   ];
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.content}
+      // The sheet already reads as scrollable from its handle and the content running past the
+      // edge; a bar tracking down the side of a card is just noise.
+      showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <BookCover title={book.title} thumbnail={book.thumbnail} size={64} />
         <View style={styles.headline}>

@@ -258,8 +258,12 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
   // Typed past the last page. Worth saying out loud rather than silently clamping: the number in
   // the field is what the reader believes, and correcting it behind their back hides the typo.
   const pastEnd = total !== null && pagesIn > total;
-  const percent = total ? Math.min(100, Math.round((pagesIn / total) * 100)) : 0;
-  const pagesToGo = total ? Math.max(0, total - pagesIn) : 0;
+  // The bar follows what is typed — but not a typo. An over-run would slam it to 100% and say the
+  // book was finished, so while the number is impossible the bar holds at the last page that
+  // actually saved.
+  const shownPage = pastEnd ? book.currentPage ?? 0 : pagesIn;
+  const percent = total ? Math.min(100, Math.round((shownPage / total) * 100)) : 0;
+  const pagesToGo = total ? Math.max(0, total - shownPage) : 0;
   const fillWidth: `${number}%` = `${percent}%`;
 
   const extendedLabel = EXTENDED_LABELS[readingStatus];
@@ -268,7 +272,10 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
     : READING_OPTIONS;
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <Icon name="reading" color={Colors.brand} size={22} />
         <View style={styles.headline}>
@@ -320,7 +327,7 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
                 <View style={[styles.fill, { width: fillWidth }]} />
               </View>
               <ThemedText type="small" themeColor="textSecondary">
-                {pagesIn > 0 ? `${percent}% · ${pagesToGo} pages to go` : `${total} pages`}
+                {shownPage > 0 ? `${percent}% · ${pagesToGo} pages to go` : `${total} pages`}
               </ThemedText>
             </View>
           ) : null}
