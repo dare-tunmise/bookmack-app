@@ -125,8 +125,10 @@ type ReadingSheetProps = {
   visible: boolean;
   book: Book;
   onClose: () => void;
-  // The book changed, so the shelf, the reading strip and the details behind this can catch up.
+  // The book changed, so the shelf and the details behind this can catch up.
   onChanged: (book: Book) => void;
+  // Somewhere to go when the catalogue's page count does not match the copy in your hand.
+  onEditBook: () => void;
 };
 
 // Everything about reading one book, in its own sheet.
@@ -138,17 +140,30 @@ type ReadingSheetProps = {
 //
 // It opens on top of the details sheet rather than replacing it, which is the same nesting the
 // delete confirmation already does from in there.
-export function ReadingSheet({ visible, book, onClose, onChanged }: ReadingSheetProps) {
+export function ReadingSheet({ visible, book, onClose, onChanged, onEditBook }: ReadingSheetProps) {
   return (
     <BottomSheet visible={visible} onClose={onClose}>
       {/* Remount for a different book, or after the status changes, so no field keeps a stale
           value from the last one. */}
-      <Reading key={`${book.id}:${book.readingStatus}`} book={book} onChanged={onChanged} />
+      <Reading
+        key={`${book.id}:${book.readingStatus}`}
+        book={book}
+        onChanged={onChanged}
+        onEditBook={onEditBook}
+      />
     </BottomSheet>
   );
 }
 
-function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => void }) {
+function Reading({
+  book,
+  onChanged,
+  onEditBook
+}: {
+  book: Book;
+  onChanged: (book: Book) => void;
+  onEditBook: () => void;
+}) {
   const [readingStatus, setReadingStatus] = useState<ReadingStatus>(book.readingStatus);
   const [page, setPage] = useState(book.currentPage ? String(book.currentPage) : '');
   const [note, setNote] = useState('');
@@ -319,8 +334,13 @@ function Reading({ book, onChanged }: { book: Book; onChanged: (book: Book) => v
             hint={total ? `of ${total}` : 'Optional'}
             // The field carries its own error — red border, message in place — rather than a
             // separate line underneath it.
-            error={pastEnd ? `This book has ${total} pages, so there is no page ${pagesIn}.` : null}
+            // Not "there is no page 900": the count came from a catalogue, and the copy in their
+            // hand may be a different edition. The number they typed is evidence, not an error.
+            error={pastEnd ? `Listed at ${total} pages. Does your copy run longer?` : null}
           />
+          {pastEnd ? (
+            <Button title="My copy has a different length" variant="secondary" onPress={onEditBook} />
+          ) : null}
           {total ? (
             <View style={styles.progress}>
               <View style={styles.track}>

@@ -393,6 +393,12 @@ function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) 
         book={book}
         onClose={() => setReadingOpen(false)}
         onChanged={onChanged}
+        // Both sheets close on the way out, or the reader comes back from editing to a stack of
+        // them still sitting open behind the screen they just left.
+        onEditBook={() => {
+          setReadingOpen(false);
+          edit();
+        }}
       />
 
       <ConfirmDialog
