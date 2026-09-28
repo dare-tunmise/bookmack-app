@@ -123,6 +123,7 @@ export default function PlanScreen() {
   return (
     <ThemedView style={styles.flex}>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl

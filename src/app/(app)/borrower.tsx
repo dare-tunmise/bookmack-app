@@ -143,7 +143,7 @@ export default function BorrowerScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.profile}>
           <BorrowerAvatar email={borrower.email} name={borrower.name} size={88} />
           <ThemedText type="h2" accessibilityRole="header" style={styles.center}>

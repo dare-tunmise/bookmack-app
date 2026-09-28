@@ -286,6 +286,7 @@ export default function LendScreen() {
             ) : (
               // The search field stays put above while the list scrolls on its own.
               <ScrollView
+                showsVerticalScrollIndicator={false}
                 style={styles.borrowerList}
                 contentContainerStyle={styles.borrowerListContent}
                 nestedScrollEnabled

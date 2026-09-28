@@ -164,7 +164,7 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
       ) : null}
 
       {matches && matches.length > 0 ? (
-        <ScrollView style={styles.matches} contentContainerStyle={styles.matchesContent} nestedScrollEnabled>
+        <ScrollView showsVerticalScrollIndicator={false} style={styles.matches} contentContainerStyle={styles.matchesContent} nestedScrollEnabled>
           {matches.map((match) => (
             <Pressable
               key={match.book.id}

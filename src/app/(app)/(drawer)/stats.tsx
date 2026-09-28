@@ -112,6 +112,7 @@ export default function StatsScreen() {
   return (
     <ThemedView style={styles.flex}>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, nothingYet && styles.emptyContent]}
         refreshControl={
           <RefreshControl

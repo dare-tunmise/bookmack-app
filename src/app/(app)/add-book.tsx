@@ -76,7 +76,7 @@ export default function AddBookScreen() {
   return (
     <ThemedView style={styles.flex}>
       <SafeAreaView style={styles.flex} edges={['bottom', 'left', 'right']}>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
           {lookup.status === 'loading' ? (
             <View style={styles.message}>
               <ActivityIndicator size="large" />

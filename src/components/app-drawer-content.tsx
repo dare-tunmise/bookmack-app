@@ -65,7 +65,7 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
         </View>
       ) : null}
 
-      <ScrollView style={styles.items} contentContainerStyle={styles.itemsContent}>
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.items} contentContainerStyle={styles.itemsContent}>
         {ITEMS.map((item) => {
           const active = currentRoute === item.route;
           return (

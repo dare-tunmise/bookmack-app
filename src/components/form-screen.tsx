@@ -24,7 +24,7 @@ export function FormScreen({ title, subtitle, edges, children }: FormScreenProps
             the window is no longer resized for the keyboard either, so nothing was compensating
             and fields simply sat behind it. */}
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <View style={styles.heading}>
               <ThemedText type="subtitle">{title}</ThemedText>
               {subtitle ? <ThemedText themeColor="textSecondary">{subtitle}</ThemedText> : null}

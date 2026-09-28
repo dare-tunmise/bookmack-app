@@ -35,7 +35,7 @@ export function AuthScreen({ title, subtitle, illustration, children }: AuthScre
         {/* See FormScreen: `undefined` on Android is a no-op, and edge-to-edge means the window
             is not resized for the keyboard either. */}
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Image
               source={dicebearUrl('notionists', illustration.seed, illustration.backgroundColor)}
               style={styles.illustration}

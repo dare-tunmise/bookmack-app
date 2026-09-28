@@ -65,7 +65,7 @@ export default function AccountScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.profile}>
           <Image
             source={dicebearUrl('notionists', user.name, '9fe870')}

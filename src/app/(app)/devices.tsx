@@ -81,7 +81,7 @@ export default function DevicesScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <ThemedText themeColor="textSecondary">
           Devices where you&apos;re logged in to BookMack. Sign out any you don&apos;t recognize.
         </ThemedText>

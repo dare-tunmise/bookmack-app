@@ -25,7 +25,7 @@ export default function WelcomeScreen() {
     <ThemedView style={styles.flex}>
       <AuthBackground />
       <SafeAreaView style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
           <View style={styles.top}>
             <View style={styles.brand}>
               <BrandMark size={36} />
