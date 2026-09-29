@@ -69,7 +69,8 @@ const ICONS = {
       <Line x1="14.25" y1="12.5" x2="13.75" y2="17" />
     </>
   ),
-  // A book going out. Its mirror image is `requests`, a book being asked for.
+  // A book going out: the spine on the left, the arrow leaving to the right. `requests` used to be
+  // this mirrored, until the bar needed the two to be tellable apart at a glance.
   loans: (
     <>
       <Rect x="3" y="4" width="9.5" height="16" rx="2" />
@@ -78,13 +79,17 @@ const ICONS = {
       <Polyline points="18.75 9.25 21.5 12 18.75 14.75" />
     </>
   ),
-  // Someone asking for a book: the arrow points back at the shelf.
+  // A tray with something dropping into it: books people have asked you for, arriving.
+  //
+  // It used to be `loans` mirrored — the same book, the arrow pointing in instead of out. That was
+  // a tidy idea and a bad icon in the bar: `library`, `requests` and `ask` were all a rounded
+  // rectangle with a line down it, and at 24px, eight pixels apart, you could not tell which was
+  // which. A tray is wide and low where a book is tall, so the silhouette alone separates them.
   requests: (
     <>
-      <Rect x="11.5" y="4" width="9.5" height="16" rx="2" />
-      <Line x1="17.75" y1="4" x2="17.75" y2="20" />
-      <Line x1="8.5" y1="12" x2="3" y2="12" />
-      <Polyline points="5.25 9.25 2.5 12 5.25 14.75" />
+      <Path d="M3.5 13.5h4l1.25 2.25h6.5L16.5 13.5h4v4a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5z" />
+      <Line x1="12" y1="3.5" x2="12" y2="10.5" />
+      <Polyline points="9.25 7.75 12 10.5 14.75 7.75" />
     </>
   ),
   // A viewfinder around a barcode: what you point at the back of a book.
@@ -112,13 +117,16 @@ const ICONS = {
       <Line x1="7" y1="15.75" x2="17" y2="15.75" />
     </>
   ),
-  // A book with a spark: asking your own library a question. Built on the same book as `loans`,
-  // because two facing curves don't read as an open book at 22px — they read as a flag.
+  // The spark on its own: something worth reading next, picked out of what you already own.
+  //
+  // It was a book with the spark tucked in the corner, which made it the third rounded rectangle
+  // in a five-slot bar. The spark was always the part carrying the meaning — the book was just
+  // saying "book" in a row where everything is about books — so the book went and the spark grew
+  // into the space. The smaller second one keeps it from reading as a plain star.
   ask: (
     <>
-      <Rect x="3.25" y="4.5" width="11" height="15.5" rx="2" />
-      <Line x1="6.5" y1="4.5" x2="6.5" y2="20" />
-      <Path d="M18.25 2.75l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" />
+      <Path d="M11 2.6a1 1 0 0 1 1.9 0l1.55 3.95 3.95 1.55a1 1 0 0 1 0 1.9l-3.95 1.55-1.55 3.95a1 1 0 0 1-1.9 0L9.5 11.55 5.55 10a1 1 0 0 1 0-1.9L9.5 6.55z" />
+      <Path d="M18.05 15.4l.62 1.58 1.58.62-1.58.62-.62 1.58-.62-1.58-1.58-.62 1.58-.62z" />
     </>
   ),
   // The same book with a ribbon left partway down it: something you are in the middle of.
@@ -299,10 +307,12 @@ const SOLID = {
       <Path d="M18.22 8.72a.75.75 0 0 1 1.06 0l2.5 2.5a.75.75 0 0 1 0 1.06l-2.5 2.5a.75.75 0 1 1-1.06-1.06l1.22-1.22H15.5a.75.75 0 0 1 0-1.5h3.94L18.22 9.78a.75.75 0 0 1 0-1.06z" />
     </>
   ),
+  // The tray filled, with the notch in its lip left open so the shape still reads as a tray and
+  // not as a slab. Redrawn with the outline: a filled book here would no longer be the same icon.
   requests: (
     <>
-      <Path d="M13.5 3.25H19A2.75 2.75 0 0 1 21.75 6v12A2.75 2.75 0 0 1 19 20.75h-5.5A2.75 2.75 0 0 1 10.75 18V6a2.75 2.75 0 0 1 2.75-2.75zm2.75 1.5v14.5h1.5V4.75z" />
-      <Path d="M5.78 8.72a.75.75 0 0 0-1.06 0l-2.5 2.5a.75.75 0 0 0 0 1.06l2.5 2.5a.75.75 0 1 0 1.06-1.06L4.56 12.5H8.5a.75.75 0 0 0 0-1.5H4.56l1.22-1.22a.75.75 0 0 0 0-1.06z" />
+      <Path d="M3.5 12.75h4a.75.75 0 0 1 .62.33l1.03 1.55h5.7l1.03-1.55a.75.75 0 0 1 .62-.33h4a.75.75 0 0 1 .75.75v4.25A3.25 3.25 0 0 1 18 21H6a3.25 3.25 0 0 1-3.25-3.25V13.5a.75.75 0 0 1 .75-.75z" />
+      <Path d="M11.25 3.5a.75.75 0 0 1 1.5 0v5.19l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72z" />
     </>
   ),
   users: (

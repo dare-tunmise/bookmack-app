@@ -33,6 +33,10 @@ Drawn on a 24×24 grid in `src/components/icon.tsx`. System actions (close, sear
 
 **`wanted` is a basket.** It used to be `library` with one slot dashed out — a shelf with a gap where the book you want would stand. Clever, and a poor icon: at 13px, the size the drawer and the wanted screen actually use it, the dash blurs into a solid edge and it reads as an ordinary shelf. A basket is a different object at any size. It also reads as a silhouette, so unlike the dashed shelf it has a `SOLID` twin; the old note explaining why it could never have one no longer applies.
 
+**An icon in a row is judged against its neighbours, not on its own.** `library`, `requests` and `ask` were each defensible drawings and together they were a failure: all three were a rounded rectangle with a line down it, and side by side in the bar at 24px you could not tell which was which. The fix was not better draughtsmanship, it was different silhouettes — `requests` became a wide, low tray and `ask` dropped its book and kept the spark that was carrying the meaning anyway. When adding anything to the bar or the drawer, put it beside what is already there before deciding it works.
+
+This is also why `requests` is no longer `loans` mirrored. That symmetry was pleasing in the file and invisible on the screen.
+
 Every icon is generated from one geometric definition: `npm run icons` (needs `rsvg-convert`). The website's favicons are staged in `dist/web-icons/` for copying into the website repo by hand.
 
 ## Reading
