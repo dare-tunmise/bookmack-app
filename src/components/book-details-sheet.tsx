@@ -43,9 +43,13 @@ type BookDetailsSheetProps = {
   // The book changed while the sheet is open (e.g. it was returned); the sheet keeps showing it.
   onChanged: (book: Book) => void;
   onDeleted: () => void;
+  // Tapping a theme shows the rest of the shelf about the same thing. Optional on purpose: a sheet
+  // opened somewhere with no shelf to filter should show its themes as plain labels rather than
+  // offer a press that goes nowhere.
+  onFilterByTheme?: (theme: string) => void;
 };
 
-export function BookDetailsSheet({ book, onClose, onChanged, onDeleted }: BookDetailsSheetProps) {
+export function BookDetailsSheet({ book, onClose, onChanged, onDeleted, onFilterByTheme }: BookDetailsSheetProps) {
   // Keep showing the last book while the sheet slides closed.
   const [shownBook, setShownBook] = useState(book);
   if (book && book !== shownBook) setShownBook(book);
@@ -60,6 +64,7 @@ export function BookDetailsSheet({ book, onClose, onChanged, onDeleted }: BookDe
           onClose={onClose}
           onChanged={onChanged}
           onDeleted={onDeleted}
+          onFilterByTheme={onFilterByTheme}
         />
       ) : null}
     </BottomSheet>
@@ -68,7 +73,7 @@ export function BookDetailsSheet({ book, onClose, onChanged, onDeleted }: BookDe
 
 type BookDetailsProps = Omit<BookDetailsSheetProps, 'book'> & { book: Book };
 
-function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) {
+function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme }: BookDetailsProps) {
   const onLoan = book.status === 'Loaned';
   // undefined while the open loan of a book on loan is loading.
   const [loan, setLoan] = useState<Loan | null | undefined>(undefined);
@@ -247,6 +252,7 @@ function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) 
             <View style={styles.tags}>
               {book.tags.map((tag) => (
                 <ThemedView key={tag} type="brandTint" style={styles.tag}>
+                  <Icon name="tag" color={Colors.text} size={12} strokeWidth={2} />
                   <ThemedText type="caption">{tag}</ThemedText>
                 </ThemedView>
               ))}
@@ -374,11 +380,30 @@ function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) 
           ) : null}
           {about.themes.length > 0 ? (
             <View style={styles.themes}>
-              {about.themes.map((theme) => (
-                <View key={theme} style={styles.themeChip}>
-                  <ThemedText type="caption">{theme}</ThemedText>
-                </View>
-              ))}
+              {about.themes.map((theme) => {
+                const content = (
+                  <>
+                    <Icon name="tag" color={Colors.textSecondary} size={12} strokeWidth={2} />
+                    <ThemedText type="caption">{theme}</ThemedText>
+                  </>
+                );
+                // Pressable only when there is a shelf to filter, so a chip never offers a press
+                // that does nothing.
+                return onFilterByTheme ? (
+                  <Pressable
+                    key={theme}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show other books about ${theme}`}
+                    onPress={() => onFilterByTheme(theme)}
+                    style={({ pressed }) => [styles.themeChip, pressed && styles.themeChipPressed]}>
+                    {content}
+                  </Pressable>
+                ) : (
+                  <View key={theme} style={styles.themeChip}>
+                    {content}
+                  </View>
+                );
+              })}
             </View>
           ) : null}
         </View>
@@ -523,6 +548,9 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one
   },
   tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
     borderRadius: Radius.pill
@@ -536,12 +564,19 @@ const styles = StyleSheet.create({
   // Same size as a tag so the sheet keeps one pill idiom, but outlined instead of tinted: these are
   // the catalog's words about the book, not the owner's words about their copy.
   themeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
     borderRadius: Radius.pill,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.surface
+  },
+  themeChipPressed: {
+    backgroundColor: Colors.brandTint,
+    borderColor: Colors.brandTint
   },
   actions: {
     gap: Spacing.two

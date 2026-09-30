@@ -63,10 +63,19 @@ export function TagInput({ tags, onChange, suggestions, error }: TagInputProps) 
         <Button title={`Add "${normalizeTag(draft)}"`} variant="secondary" onPress={() => add(draft)} />
       ) : null}
 
+      {/* The tags actually on this book carry the tag glyph. The suggestions further down keep their
+          plus, because that one means "tap to add" — an action, not a label — and a pill this size
+          has room for one glyph, not both. */}
       {tags.length > 0 ? (
         <View style={styles.chips}>
           {tags.map((tag) => (
-            <Chip key={tag} label={tag} tinted onRemove={() => onChange(tags.filter((current) => current !== tag))} />
+            <Chip
+              key={tag}
+              label={tag}
+              tinted
+              leadingIcon="tag"
+              onRemove={() => onChange(tags.filter((current) => current !== tag))}
+            />
           ))}
         </View>
       ) : null}

@@ -72,6 +72,10 @@ export default function LibraryScreen() {
   const { decrement: decrementPending } = usePendingRequests();
   const [tags, setTags] = useState<{ name: string; count: number }[]>([]);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  // Set by tapping a theme on a book: the catalog's account of what it is about, filtered server
+  // side. Unlike tags there is no list of them to browse — a theme arrives from a book you were
+  // already looking at — so it appears as a single chip at the head of the bar until it is cleared.
+  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const loadedOnce = useRef(false);
   // Responses from a previous tab or search are ignored once a newer request starts.
   const latestRequest = useRef(0);
@@ -113,6 +117,7 @@ export default function LibraryScreen() {
             cursor,
             q: query || undefined,
             tags: selectedTag ?? undefined,
+            themes: selectedTheme ?? undefined,
             ...TAB_QUERIES[tab]
           }
         }
@@ -127,7 +132,7 @@ export default function LibraryScreen() {
     } finally {
       if (isCurrent()) setLoading(null);
     }
-  }, [tab, query, selectedTag]);
+  }, [tab, query, selectedTag, selectedTheme]);
 
   // Load when the screen first appears; refresh quietly when it comes back into view or the
   // tab or search changes.
@@ -161,6 +166,28 @@ export default function LibraryScreen() {
 
   const chooseTag = (name: string) => {
     setSelectedTag((current) => (current === name ? null : name));
+    setBooks([]);
+    setNextCursor(null);
+    setError(null);
+    setLoading('initial');
+  };
+
+  // Tapping a theme on a book means "show me the rest of the shelf about this". It moves to the All
+  // tab on the way: Recent and Lent out are slices, and /books/reading takes no theme filter at all,
+  // so filtering from there would look live and do nothing.
+  const filterByTheme = (theme: string) => {
+    setSelectedBook(null);
+    setSelectedTheme(theme);
+    setSelectedTag(null);
+    setTab('all');
+    setBooks([]);
+    setNextCursor(null);
+    setError(null);
+    setLoading('initial');
+  };
+
+  const clearTheme = () => {
+    setSelectedTheme(null);
     setBooks([]);
     setNextCursor(null);
     setError(null);
@@ -253,6 +280,12 @@ export default function LibraryScreen() {
 
   const emptyShelf = error ? (
     <LoadError message={error} onRetry={() => load('initial')} />
+  ) : selectedTheme ? (
+    <EmptyState
+      seed="no-theme-matches"
+      title="Nothing else about this"
+      message={`No other book on your shelf is about "${selectedTheme}".`}
+    />
   ) : selectedTag ? (
     <EmptyState
       seed="no-tag-matches"
@@ -323,19 +356,29 @@ export default function LibraryScreen() {
 
       <Tabs tabs={LIBRARY_TABS} value={tab} onChange={changeTab} />
 
-      {/* Hidden on the Reading tab: /books/reading takes no tag filter, so the chips would look
-          live and do nothing. */}
-      {tags.length > 0 && tab !== 'reading' ? (
+      {/* Hidden on the Reading tab: /books/reading takes neither filter, so the chips would look
+          live and do nothing.
+
+          The condition includes selectedTheme deliberately. A shelf with no tags at all would
+          otherwise render no bar, and a theme filter would then be applied with nothing on screen
+          saying so and no way to clear it. */}
+      {(tags.length > 0 || selectedTheme) && tab !== 'reading' ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.tagBar}
           contentContainerStyle={styles.tagBarContent}>
+          {/* First, and removable: it is the filter you arrived with rather than one of a set you
+              can browse, so it reads as a thing to dismiss. */}
+          {selectedTheme ? (
+            <Chip label={selectedTheme} selected leadingIcon="tag" onRemove={clearTheme} />
+          ) : null}
           {tags.map((tag) => (
             <Chip
               key={tag.name}
               label={tag.name}
               selected={tag.name === selectedTag}
+              leadingIcon="tag"
               onPress={() => chooseTag(tag.name)}
             />
           ))}
@@ -400,6 +443,7 @@ export default function LibraryScreen() {
           setSelectedBook(null);
           load('background');
         }}
+        onFilterByTheme={filterByTheme}
       />
     </ThemedView>
   );

@@ -11,7 +11,10 @@ type ChipProps = {
   selected?: boolean;
   // Soft green, e.g. a tag already added to a book.
   tinted?: boolean;
-  leadingIcon?: 'plus';
+  // 'plus' is an action — tap to add this one. 'tag' is a label, marking the chip as a tag or a
+  // theme rather than something to press. They are not interchangeable, and a chip wants at most
+  // one: two glyphs on a pill this size is clutter.
+  leadingIcon?: 'plus' | 'tag';
   onRemove?: () => void;
 };
 

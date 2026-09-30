@@ -172,6 +172,18 @@ const ICONS = {
       <Line x1="12" y1="16" x2="12.01" y2="16" />
     </>
   ),
+  // A label hanging by its hole: the owner's tags, and the themes the catalog gives a book.
+  //
+  // Deliberately the conventional shape rather than one built from the brand mark's geometry. A tag
+  // is a system shape people recognise without reading it, which the note at the top of this file
+  // reserves for exactly this treatment. Its square corners need no arcs of their own either: every
+  // icon here is drawn with strokeLinejoin="round", so they come out rounded like the rest.
+  tag: (
+    <>
+      <Path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+      <Circle cx="7.25" cy="7.25" r="1.25" />
+    </>
+  ),
   check: <Polyline points="20 6 9 17 4 12" />,
   star: <Path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />,
   // Rounded shoulders, like the terminals on the logo, rather than the usual square ones.

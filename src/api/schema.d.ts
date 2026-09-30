@@ -2137,6 +2137,8 @@ export interface operations {
                 readingStatus?: string;
                 /** @description Comma-separated; matches books with any of these tags */
                 tags?: string;
+                /** @description Comma-separated; matches books whose about.themes include any of these. The catalog's account of the book, not the owner's tags */
+                themes?: string;
                 sort?: "-createdAt" | "createdAt" | "title" | "-title" | "author" | "-author";
             };
             header?: never;
