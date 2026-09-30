@@ -47,9 +47,20 @@ type BookDetailsSheetProps = {
   // opened somewhere with no shelf to filter should show its themes as plain labels rather than
   // offer a press that goes nowhere.
   onFilterByTheme?: (theme: string) => void;
+  // How many books on the shelf share a theme, so a chip can say whether tapping it leads anywhere.
+  // Returns 0 when the counts have not loaded, which reads as "not yet known" and leaves the chip a
+  // plain label rather than a link that might go nowhere.
+  countForTheme?: (theme: string) => number;
 };
 
-export function BookDetailsSheet({ book, onClose, onChanged, onDeleted, onFilterByTheme }: BookDetailsSheetProps) {
+export function BookDetailsSheet({
+  book,
+  onClose,
+  onChanged,
+  onDeleted,
+  onFilterByTheme,
+  countForTheme
+}: BookDetailsSheetProps) {
   // Keep showing the last book while the sheet slides closed.
   const [shownBook, setShownBook] = useState(book);
   if (book && book !== shownBook) setShownBook(book);
@@ -65,6 +76,7 @@ export function BookDetailsSheet({ book, onClose, onChanged, onDeleted, onFilter
           onChanged={onChanged}
           onDeleted={onDeleted}
           onFilterByTheme={onFilterByTheme}
+          countForTheme={countForTheme}
         />
       ) : null}
     </BottomSheet>
@@ -73,7 +85,7 @@ export function BookDetailsSheet({ book, onClose, onChanged, onDeleted, onFilter
 
 type BookDetailsProps = Omit<BookDetailsSheetProps, 'book'> & { book: Book };
 
-function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme }: BookDetailsProps) {
+function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, countForTheme }: BookDetailsProps) {
   const onLoan = book.status === 'Loaned';
   // undefined while the open loan of a book on loan is loading.
   const [loan, setLoan] = useState<Loan | null | undefined>(undefined);
@@ -252,7 +264,9 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme }: B
             <View style={styles.tags}>
               {book.tags.map((tag) => (
                 <ThemedView key={tag} type="brandTint" style={styles.tag}>
-                  <Icon name="tag" color={Colors.text} size={12} strokeWidth={2} />
+                  {/* 14 with a 2.5 stroke, matching Chip's leading icon: at 12 it read as a smudge
+                      rather than a tag, and the two sizes made the same glyph look like two. */}
+                  <Icon name="tag" color={Colors.text} size={14} strokeWidth={2.5} />
                   <ThemedText type="caption">{tag}</ThemedText>
                 </ThemedView>
               ))}
@@ -381,20 +395,31 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme }: B
           {about.themes.length > 0 ? (
             <View style={styles.themes}>
               {about.themes.map((theme) => {
+                // Most themes belong to one book — measured, 439 of 558 on a real shelf — because
+                // each book was described without seeing the vocabulary already on the shelf. Tapping
+                // one of those can only return the book you are already looking at, which reads as
+                // broken. So a theme only becomes a link when it genuinely leads somewhere, and says
+                // how far: "colonialism 13". The rest stay labels.
+                const shared = countForTheme?.(theme) ?? 0;
+                const leadsSomewhere = shared > 1 && Boolean(onFilterByTheme);
                 const content = (
                   <>
-                    <Icon name="tag" color={Colors.textSecondary} size={12} strokeWidth={2} />
+                    <Icon name="tag" color={Colors.textSecondary} size={14} strokeWidth={2.5} />
                     <ThemedText type="caption">{theme}</ThemedText>
+                    {leadsSomewhere ? (
+                      <ThemedText type="caption" themeColor="textSecondary">
+                        {shared}
+                      </ThemedText>
+                    ) : null}
                   </>
                 );
-                // Pressable only when there is a shelf to filter, so a chip never offers a press
-                // that does nothing.
-                return onFilterByTheme ? (
+
+                return leadsSomewhere ? (
                   <Pressable
                     key={theme}
                     accessibilityRole="button"
-                    accessibilityLabel={`Show other books about ${theme}`}
-                    onPress={() => onFilterByTheme(theme)}
+                    accessibilityLabel={`Show the ${shared} books about ${theme}`}
+                    onPress={() => onFilterByTheme?.(theme)}
                     style={({ pressed }) => [styles.themeChip, pressed && styles.themeChipPressed]}>
                     {content}
                   </Pressable>

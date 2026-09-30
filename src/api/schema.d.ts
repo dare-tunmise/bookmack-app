@@ -1198,6 +1198,11 @@ export interface components {
                 name: string;
                 count: number;
             }[];
+            /** @description What the shelf's books are about, with how many hold each one. The count says whether a theme leads anywhere: most belong to a single book */
+            themes: {
+                name: string;
+                count: number;
+            }[];
         };
         ReadingBook: {
             book: components["schemas"]["Book"];

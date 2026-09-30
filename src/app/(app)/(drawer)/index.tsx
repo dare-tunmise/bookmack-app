@@ -76,6 +76,10 @@ export default function LibraryScreen() {
   // side. Unlike tags there is no list of them to browse — a theme arrives from a book you were
   // already looking at — so it appears as a single chip at the head of the bar until it is cleared.
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+  // How many books share each theme. Keyed lowercase deliberately: the API matches themes ignoring
+  // case, and the same theme can be capitalised on one book and not another, so a lookup by a book's
+  // own spelling has to ignore case too or it would disagree with the filter it feeds.
+  const [themeCounts, setThemeCounts] = useState<Map<string, number>>(new Map());
   const loadedOnce = useRef(false);
   // Responses from a previous tab or search are ignored once a newer request starts.
   const latestRequest = useRef(0);
@@ -153,6 +157,7 @@ export default function LibraryScreen() {
           if (cancelled || !data) return;
           const available = data.data.tags;
           setTags([...available].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)));
+          setThemeCounts(new Map(data.data.themes.map((theme) => [theme.name.toLowerCase(), theme.count])));
           // Drop a filter for a tag that no book has any more.
           setSelectedTag((current) => (current && !available.some((tag) => tag.name === current) ? null : current));
         })
@@ -444,6 +449,7 @@ export default function LibraryScreen() {
           load('background');
         }}
         onFilterByTheme={filterByTheme}
+        countForTheme={(theme) => themeCounts.get(theme.toLowerCase()) ?? 0}
       />
     </ThemedView>
   );
