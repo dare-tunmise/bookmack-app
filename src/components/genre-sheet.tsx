@@ -4,7 +4,9 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
 import { BookCover } from '@/components/book-cover';
+import { Icon } from '@/components/icon';
 import { BottomSheet } from '@/components/bottom-sheet';
+import { GenrePoster, type GenreSelection } from '@/components/genre-poster';
 import { Skeleton } from '@/components/skeleton';
 import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -20,8 +22,9 @@ const FETCH_LIMIT = 100;
 const PREVIEW_ROWS = 4;
 
 // The slice that was tapped, carrying its colour with it so the link between the two screens is
-// visible rather than implied.
-export type GenreSelection = { name: string; count: number; colour: string };
+// visible rather than implied. Defined alongside the poster and re-exported here, because both need
+// it and only one of them can own it without the two importing each other.
+export type { GenreSelection };
 
 type Filter = 'all' | 'read' | 'reading' | 'unread';
 
@@ -64,6 +67,7 @@ function GenreDetail({ genre, libraryTotal }: { genre: GenreSelection; libraryTo
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState(false);
+  const [posterOpen, setPosterOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -165,6 +169,22 @@ function GenreDetail({ genre, libraryTotal }: { genre: GenreSelection; libraryTo
               <ThemedText style={styles.seeAllLabel}>{`See all ${matching.length}`}</ThemedText>
             </Pressable>
           ) : null}
+
+          {books.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setPosterOpen(true)}
+              style={({ pressed }) => [styles.poster, pressed && styles.pressed]}>
+              <Icon name="image" color={Colors.textOnDark} size={18} strokeWidth={2} />
+              <ThemedText style={styles.posterLabel}>Make a poster</ThemedText>
+            </Pressable>
+          ) : null}
+
+          <GenrePoster
+            genre={posterOpen ? genre : null}
+            books={books}
+            onClose={() => setPosterOpen(false)}
+          />
         </>
       )}
     </View>
@@ -283,5 +303,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     color: Colors.text
+  },
+  poster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 52,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.text
+  },
+  posterLabel: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 16,
+    lineHeight: 20,
+    color: Colors.textOnDark
   }
 });
