@@ -20,9 +20,9 @@ export default function DrawerLayout() {
   return (
     <PendingRequestsProvider>
       <AppActionsProvider>
-        {/* The bar floats over the navigator so the content runs up to its cut edge and the add
-            button overhangs with nothing painted behind it. The spacer below is what keeps that
-            honest: it reserves the bar's strip in flow, so no section has content hidden under it. */}
+        {/* The bar is docked to the bottom and sits over the navigator, with only the add button
+            crossing its top edge. The spacer below is what keeps that honest: it reserves the bar's
+            strip in flow, so no section has content hidden under it. */}
         <View style={styles.root}>
           <Drawer
             drawerContent={(props) => <AppDrawerContent {...props} />}
@@ -50,8 +50,8 @@ export default function DrawerLayout() {
             <Drawer.Screen name="plan" options={{ title: 'Plan & limits' }} />
           </Drawer>
 
-          {/* Reserves the bar's own strip in flow, so no screen has content hidden behind it.
-              The bar itself floats on top of everything, and only the button crosses this line. */}
+          {/* Reserves the bar's own strip in flow, so no screen has content hidden behind it. The
+              bar paints itself over everything, and only the add button crosses this line. */}
           <View style={{ height: BOTTOM_NAV_BODY + insets.bottom }} />
           <BottomNav />
         </View>

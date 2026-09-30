@@ -7,27 +7,25 @@ import { Badge } from '@/components/badge';
 import { Icon, type IconName } from '@/components/icon';
 import { usePendingRequests } from '@/components/pending-requests';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Fonts, Radius, Shadows, Spacing } from '@/constants/theme';
+import { Colors, Fonts, Radius } from '@/constants/theme';
 
-const PILL_HEIGHT = 64;
-// The gap beneath the pill, between it and the safe area. What makes it read as floating rather
-// than as a bar welded to the bottom of the screen.
-const GAP = Spacing.three;
-const SIDE = Spacing.three;
+// A docked bar, as drawn in the design: white, a hairline along its top edge, and its top corners
+// rounded so it reads as a surface laid over the page rather than a strip welded to the screen.
+const BAR_HEIGHT = 72;
+const BAR_PADDING_TOP = 10;
 
-const BUTTON = 56;
-// Drawing room above the pill for the button's overhang. This is inside the container's own bounds
-// on purpose — Android does not deliver touches to a child outside its parent, so a button placed
-// above the bounds draws perfectly and then ignores taps on its top half.
-const OVERHANG = BUTTON / 2 + Spacing.two;
+// The add button breaches the bar's top edge by this much.
+const BUTTON = 60;
+const BUTTON_RING = 64;
+const OVERHANG = 22;
 
-// What the drawer layout reserves in flow, so no screen ends with content under the bar. The
-// safe-area inset is added there, not here.
-export const BOTTOM_NAV_BODY = PILL_HEIGHT + GAP;
+// The slot the button sits in. Nothing lays out under it.
+const CENTRE_GAP = 84;
 
-// Inactive icons are white on ink, which reads optically heavier than the same stroke on a light
-// background — so they are held back rather than pure white.
-const INACTIVE = 'rgba(255, 255, 255, 0.72)';
+// What the drawer layout reserves in flow so no screen ends with content under the bar. The bar is
+// docked now rather than floating, so this is its own height and no gap; the safe-area inset is added
+// by the layout, not here.
+export const BOTTOM_NAV_BODY = BAR_HEIGHT;
 
 type NavItemProps = {
   label: string;
@@ -37,11 +35,8 @@ type NavItemProps = {
   onPress: () => void;
 };
 
-// Inactive: the icon alone. Active: a capsule with the icon and its name side by side.
-//
-// Only the current section is named. Five labels across a pill is the thing that made the old bar
-// feel like a toolbar — and the one place you never need a label is the section you are looking at,
-// except that naming it is what tells you where you are. So: name only that one.
+// Every item is named, not only the current one. Four labels and a centred action is what the design
+// asks for, and at 11px they sit under the icons without crowding them.
 function NavItem({ label, icon, active = false, badge = null, onPress }: NavItemProps) {
   return (
     <Pressable
@@ -49,38 +44,28 @@ function NavItem({ label, icon, active = false, badge = null, onPress }: NavItem
       accessibilityLabel={label}
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.item,
-        active && styles.itemActive,
-        pressed && styles.pressed
-      ]}>
+      style={({ pressed }) => [styles.item, pressed && styles.pressed]}>
       <View>
-        <Icon name={icon} color={active ? Colors.text : INACTIVE} size={24} filled={active} />
+        <Icon name={icon} color={active ? Colors.brand : Colors.textSecondary} size={24} strokeWidth={2} />
         {badge ? (
           <View style={styles.badge}>
             <Badge label={badge} tone="danger" />
           </View>
         ) : null}
       </View>
-      {active ? (
-        <ThemedText numberOfLines={1} style={styles.label}>
-          {label}
-        </ThemedText>
-      ) : null}
+      <ThemedText numberOfLines={1} style={[styles.label, active && styles.labelActive]}>
+        {label}
+      </ThemedText>
     </Pressable>
   );
 }
 
-// A floating pill with the "+" raised out of its top edge.
+// Three of the five slots are destinations; the centre "+" and "Read next" open sheets, which is why
+// this is a plain component rather than a Tabs navigator — a navigator wants every slot to be a route.
 //
-// It replaced a full-width bar with a circular bite cut from its top: that needed an SVG path whose
-// shoulder circles were tangent to the notch circle, because a rounded rectangle cannot make a cut
-// that flows. None of that is needed once the bar floats — the button simply overlaps a pill that
-// stops short of the screen edges, and the geometry is a border radius.
-//
-// Three of the five slots are destinations; the middle "+" and "Read next" open sheets, which is
-// why this is a plain component rather than a Tabs navigator — a navigator wants every slot to be
-// a route.
+// The container is deliberately taller than the bar: the button overhangs the top edge, and Android
+// does not deliver touches to a child drawn outside its parent's bounds, so a button placed above the
+// container would draw perfectly and then ignore taps on its upper half.
 export function BottomNav() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
@@ -90,12 +75,12 @@ export function BottomNav() {
   const go = (href: Href) => router.navigate(href);
 
   return (
-    // box-none: the container is never the touch target, so taps beside the pill reach the content
-    // behind it, while the pill and the button still work.
+    // box-none: the strip above the bar is not a touch target, so taps there reach the content behind
+    // it while the bar and the button still work.
     <View
-      style={[styles.container, { height: OVERHANG + BOTTOM_NAV_BODY + insets.bottom }]}
+      style={[styles.container, { height: OVERHANG + BAR_HEIGHT + insets.bottom }]}
       pointerEvents="box-none">
-      <View style={[styles.pill, { bottom: insets.bottom + GAP }]}>
+      <View style={[styles.bar, { height: BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom }]}>
         <NavItem label="Library" icon="library" active={pathname === '/'} onPress={() => go('/')} />
         <NavItem
           label="Requests"
@@ -104,30 +89,28 @@ export function BottomNav() {
           badge={pending > 0 ? (more ? `${pending}+` : String(pending)) : null}
           onPress={() => go('/requests')}
         />
-        {/* Holds the button's width so nothing slides under it. */}
         <View style={styles.centreGap} />
         <NavItem label="Read next" icon="ask" onPress={openPickRead} />
         <NavItem label="Stats" icon="stats" active={pathname === '/stats'} onPress={() => go('/stats')} />
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Add a book"
-        hitSlop={10}
-        onPress={openAdd}
-        style={({ pressed }) => [
-          styles.add,
-          { bottom: insets.bottom + GAP + PILL_HEIGHT - BUTTON / 2 },
-          pressed && styles.addPressed
-        ]}>
-        <Icon name="plus" color={Colors.text} size={26} strokeWidth={2.5} />
-      </Pressable>
+      {/* The ring is the page colour showing through, which is what separates the button from the bar
+          without painting a hole in it. */}
+      <View style={[styles.ring, { bottom: insets.bottom + BAR_HEIGHT - BUTTON_RING / 2 }]} pointerEvents="box-none">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Add a book"
+          hitSlop={8}
+          onPress={openAdd}
+          style={({ pressed }) => [styles.add, pressed && styles.addPressed]}>
+          <Icon name="plus" color={Colors.accent} size={28} strokeWidth={2.5} />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // Pinned to the bottom and transparent: the only thing painted is the pill itself.
   container: {
     position: 'absolute',
     left: 0,
@@ -135,42 +118,37 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'transparent'
   },
-  pill: {
+  bar: {
     position: 'absolute',
-    left: SIDE,
-    right: SIDE,
-    height: PILL_HEIGHT,
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.two,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.text,
-    ...Shadows.floating
+    alignItems: 'flex-start',
+    paddingTop: BAR_PADDING_TOP,
+    backgroundColor: Colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    borderTopLeftRadius: Radius.card,
+    borderTopRightRadius: Radius.card
   },
   item: {
-    height: 44,
-    minWidth: 44,
-    flexDirection: 'row',
+    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.one,
-    borderRadius: Radius.pill
-  },
-  // The current section, named, in the brand's own green.
-  itemActive: {
-    paddingHorizontal: Spacing.three,
-    backgroundColor: Colors.accent
+    gap: 3
   },
   pressed: {
     opacity: 0.7
   },
   label: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 11,
+    lineHeight: 14,
+    color: Colors.textSecondary
+  },
+  labelActive: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 14,
-    lineHeight: 18,
-    color: Colors.text
+    color: Colors.brand
   },
   // Sits off the icon's top-right corner.
   badge: {
@@ -179,25 +157,33 @@ const styles = StyleSheet.create({
     left: 14
   },
   centreGap: {
-    width: BUTTON - Spacing.two
+    width: CENTRE_GAP
   },
-  add: {
+  ring: {
     position: 'absolute',
     alignSelf: 'center',
+    width: BUTTON_RING,
+    height: BUTTON_RING,
+    borderRadius: BUTTON_RING / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background
+  },
+  add: {
     width: BUTTON,
     height: BUTTON,
     borderRadius: BUTTON / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.accent,
-    borderWidth: 4,
-    // The ring is the background showing through, which is what separates the button from the pill
-    // without painting a hole in it.
-    borderColor: Colors.background,
-    ...Shadows.floating
+    backgroundColor: Colors.text,
+    shadowColor: Colors.text,
+    shadowOpacity: 0.24,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10
   },
   addPressed: {
-    opacity: 0.9,
+    opacity: 0.92,
     transform: [{ scale: 0.96 }]
   }
 });

@@ -101,4 +101,27 @@ export const Shadows = {
   }
 } satisfies Record<string, ViewStyle>;
 
+// Chart colour and marks, from the design's own chart system. The app's palette is one green family,
+// which is fine for buttons and badges and cannot tell six genres apart — these are the tokens that
+// extend it, derived in OKLCH from the brand hue and checked for contrast and colour blindness rather
+// than eyeballed.
+export const Chart = {
+  // IDENTITY colour, spent in exactly one place: genre. A genre keeps its hue everywhere it appears,
+  // so filtering never repaints the survivors. Assigned in this fixed order and never cycled.
+  genre: ['#227E00', '#1A5EC2', '#BB8800', '#812B8F', '#00919F'],
+  // The tail is neutral by design. A seventh genre folds in here rather than getting a generated hue.
+  genreOther: '#9AA79A',
+  // SEQUENTIAL and ordinal: one hue, light to dark. Magnitude on the activity heatmap (pages that
+  // day), order on the reading-state bar (unread → reading → read). Never used for identity.
+  ramp: ['#EAEDE6', '#83C575', '#59A847', '#308B15', '#1A6700'],
+  // 1px hairline, never dashed and never heavier than the data it sits behind.
+  gridline: '#EDEFEA',
+  // Type on the ink hero card.
+  onInk: '#CFE8BC',
+  onInkMuted: '#9DB48C'
+} as const;
+
+// Lime (#9FE870) is never a chart fill: it sits at 1.3:1 on white, so a lime bar on a white card is
+// close to invisible. It stays what it is elsewhere — a highlight behind dark text.
+
 export const MaxContentWidth = 800;

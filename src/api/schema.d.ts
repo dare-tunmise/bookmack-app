@@ -1006,6 +1006,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stats/genres": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How the collection divides by genre, commonest first, with the shelf total */
+        get: operations["getGenreBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stats/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pages read per day (UTC) for the activity heatmap; only days with pages are returned */
+        get: operations["getReadingActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stats/year": {
         parameters: {
             query?: never;
@@ -1508,6 +1542,21 @@ export interface components {
             /** @description YYYY-MM (UTC) */
             month: string;
             count: number;
+        };
+        GenreBreakdown: {
+            /** @description Every book on the shelf, including those with no category — the figure in the middle of the ring */
+            total: number;
+            /** @description Commonest first, and deliberately not truncated: the client folds the tail beyond its palette, and the uncategorised remainder, into one neutral "Other" */
+            genres: {
+                name: string;
+                count: number;
+            }[];
+        };
+        ActivityDay: {
+            /** @description YYYY-MM-DD (UTC) */
+            date: string;
+            /** @description Pages gained that day, summed across books */
+            pages: number;
         };
         YearInBooks: {
             year: number;
@@ -3922,6 +3971,59 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["MonthlyCount"][];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getGenreBreakdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Genre breakdown */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GenreBreakdown"];
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getReadingActivity: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Days with reading */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ActivityDay"][];
                     };
                 };
             };
