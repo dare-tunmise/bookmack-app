@@ -7,6 +7,7 @@ import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
 import { useAppActions } from '@/components/app-actions';
 import { Button } from '@/components/button';
+import { GenreSheet, type GenreSelection } from '@/components/genre-sheet';
 import { Skeleton } from '@/components/skeleton';
 import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -48,6 +49,9 @@ export default function StatsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [range, setRange] = useState<Range>('year');
+  // The slice that was tapped. Its colour travels into the sheet, so the two screens read as the
+  // same thing rather than two views that happen to share a word.
+  const [openGenre, setOpenGenre] = useState<GenreSelection | null>(null);
   const { openAdd } = useAppActions();
 
   const load = useCallback(async () => {
@@ -190,7 +194,7 @@ export default function StatsScreen() {
             <View style={styles.cardHead}>
               <ThemedText style={styles.cardTitle}>Genre</ThemedText>
             </View>
-            <GenreDonut breakdown={genres} />
+            <GenreDonut breakdown={genres} onSelect={setOpenGenre} />
           </View>
         ) : null}
 
@@ -241,6 +245,8 @@ export default function StatsScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      <GenreSheet genre={openGenre} libraryTotal={genres.total} onClose={() => setOpenGenre(null)} />
     </ThemedView>
   );
 }
@@ -468,7 +474,13 @@ type DrawnSlice = {
   whole: boolean;
 };
 
-function GenreDonut({ breakdown }: { breakdown: Genres }) {
+function GenreDonut({
+  breakdown,
+  onSelect
+}: {
+  breakdown: Genres;
+  onSelect: (slice: GenreSelection) => void;
+}) {
   const slices = foldGenres(breakdown);
   const total = slices.reduce((sum, slice) => sum + slice.count, 0);
   const [width, setWidth] = useState(0);
@@ -511,7 +523,12 @@ function GenreDonut({ breakdown }: { breakdown: Genres }) {
                   fill="none"
                 />
               ) : (
-                <Path key={slice.name} d={ringSegment(slice.from, slice.to)} fill={slice.colour} />
+                <Path
+                  key={slice.name}
+                  d={ringSegment(slice.from, slice.to)}
+                  fill={slice.colour}
+                  onPress={() => onSelect({ name: slice.name, count: slice.count, colour: slice.colour })}
+                />
               )
             )}
             <SvgText
@@ -537,12 +554,15 @@ function GenreDonut({ breakdown }: { breakdown: Genres }) {
       </View>
 
       <View style={styles.genreRows}>
+        {/* The legend is the real target: a 38px-wide arc is a poor one, and every row here already
+            names and numbers its slice. */}
         {slices.map((slice) => (
-          <View
+          <Pressable
             key={slice.name}
-            accessible
-            accessibilityLabel={`${slice.name}: ${slice.count} books`}
-            style={styles.genreRow}>
+            accessibilityRole="button"
+            accessibilityLabel={`${slice.name}: ${slice.count} books. Open the list`}
+            onPress={() => onSelect({ name: slice.name, count: slice.count, colour: slice.colour })}
+            style={({ pressed }) => [styles.genreRow, pressed && styles.pressed]}>
             <View style={[styles.swatch, { backgroundColor: slice.colour }]} />
             <ThemedText style={styles.genreName} numberOfLines={1}>
               {slice.name}
@@ -551,7 +571,7 @@ function GenreDonut({ breakdown }: { breakdown: Genres }) {
             <ThemedText style={styles.genrePercent}>
               {`${total > 0 ? Math.round((slice.count / total) * 100) : 0}%`}
             </ThemedText>
-          </View>
+          </Pressable>
         ))}
       </View>
     </>
