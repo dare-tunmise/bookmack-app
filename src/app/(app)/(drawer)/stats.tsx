@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
@@ -610,8 +610,15 @@ const mondayUtc = (date: Date) => {
 
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 
+// Drawn at its own size and allowed to overflow, rather than scaled to the card.
+//
+// Scaling was the first attempt and it read as cramped: 364px of design inside about 332px of card
+// puts the 15px cells at 13.7px with 3.6px gaps, and at that size the 4px radius and the gap between
+// cells stop being legible as separate marks. The design specifies the cell, not the canvas, so the
+// grid keeps 15px and scrolls — which also means eighteen weeks stays eighteen weeks on a narrow
+// phone instead of quietly becoming unreadable.
 function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
-  const [width, setWidth] = useState(0);
+  const scroller = useRef<ScrollView>(null);
   const pages = new Map(days.map((day) => [day.date, day.pages]));
   const firstMonday = mondayUtc(new Date());
   firstMonday.setUTCDate(firstMonday.getUTCDate() - (WEEKS - 1) * 7);
@@ -623,13 +630,14 @@ function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   });
 
   return (
-    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-      {width > 0 ? (
-        <>
-          <Svg
-            width={width}
-            height={(width * HEAT_HEIGHT) / HEAT_WIDTH}
-            viewBox={`0 0 ${HEAT_WIDTH} ${HEAT_HEIGHT}`}>
+    <>
+      <ScrollView
+        ref={scroller}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        // The week you care about is the current one, so the grid opens at its right edge.
+        onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: false })}>
+        <Svg width={HEAT_WIDTH} height={HEAT_HEIGHT} viewBox={`0 0 ${HEAT_WIDTH} ${HEAT_HEIGHT}`}>
             {/* Monday, Wednesday, Friday only: seven letters down the side is noise. */}
             {[0, 2, 4].map((row) => (
               <SvgText
@@ -674,17 +682,16 @@ function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
                 );
               })
             )}
-          </Svg>
-          <View style={styles.rampKey}>
-            <ThemedText style={styles.rampKeyLabel}>Fewer pages</ThemedText>
-            {Chart.ramp.map((colour) => (
-              <View key={colour} style={[styles.rampSwatch, { backgroundColor: colour }]} />
-            ))}
-            <ThemedText style={styles.rampKeyLabel}>More</ThemedText>
-          </View>
-        </>
-      ) : null}
-    </View>
+        </Svg>
+      </ScrollView>
+      <View style={styles.rampKey}>
+        <ThemedText style={styles.rampKeyLabel}>Fewer pages</ThemedText>
+        {Chart.ramp.map((colour) => (
+          <View key={colour} style={[styles.rampSwatch, { backgroundColor: colour }]} />
+        ))}
+        <ThemedText style={styles.rampKeyLabel}>More</ThemedText>
+      </View>
+    </>
   );
 }
 

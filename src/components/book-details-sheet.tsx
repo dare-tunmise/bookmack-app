@@ -36,6 +36,18 @@ const READING_LABELS: Record<ReadingStatus, string> = {
 };
 
 
+// Publishers sometimes fill the description field with the book's reviews rather than a description.
+// Detected by the ATTRIBUTIONS rather than by length, because length alone would misfire on the long
+// descriptions that are genuinely about the book: two or more "--Source" sign-offs is a review
+// roundup, and an ordinary blurb has none at all.
+const ATTRIBUTION = /--\s*[A-Z]/g;
+const looksLikePressQuotes = (text: string) => (text.match(ATTRIBUTION) ?? []).length >= 2;
+
+// '' arrives from a bad export upstream and lands mid-word ("Kooser''s"), where it reads as the
+// owner's own typo. Repaired on the way to the screen; the stored text is left alone, because the
+// catalogue's copy is not ours to rewrite.
+const tidyBlurb = (text: string) => text.replace(/''/g, '’').trim();
+
 type BookDetailsSheetProps = {
   // The book to show, or null to close the sheet.
   book: Book | null;
@@ -225,7 +237,13 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
   // The publisher's blurb when there is one, otherwise the compressed version. Never both:
   // about.text is a compression OF the description, so showing the two together says the same thing
   // twice — but a book catalogued with headings and no blurb still has one summary worth reading.
-  const summary = book.description ?? about?.text ?? null;
+  //
+  // Unless the "description" is a press-quote dump, in which case the compression is the better text
+  // by a distance. Measured on this shelf: Delights & Shadows carries 3,986 characters of eleven
+  // review blurbs run together and not one sentence about the poems, while its `about` opens "finds
+  // metaphysical themes and quiet wonder in ordinary details of daily life".
+  const blurb = book.description ? tidyBlurb(book.description) : null;
+  const summary = blurb && !looksLikePressQuotes(blurb) ? blurb : about?.text ?? blurb;
   // Form, period and setting on one line. A fact row each would bury them; together they read like
   // the spine of the book.
   const aboutContext = about
