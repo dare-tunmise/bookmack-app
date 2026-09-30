@@ -8,6 +8,7 @@ import { errorMessage, toApiError } from '@/api/errors';
 import { useAppActions } from '@/components/app-actions';
 import { Button } from '@/components/button';
 import { GenreSheet, type GenreSelection } from '@/components/genre-sheet';
+import { SegmentedControl } from '@/components/segmented-control';
 import { Skeleton } from '@/components/skeleton';
 import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -43,6 +44,13 @@ const monthDate = (month: string) => {
 };
 
 type Range = 'year' | 'all';
+
+// `as const` so the keys infer as Range rather than widening to string, which is what lets
+// onChange={setRange} line up.
+const RANGES = [
+  { key: 'year', label: 'This year' },
+  { key: 'all', label: 'All time' }
+] as const satisfies readonly { key: Range; label: string }[];
 
 export default function StatsScreen() {
   const [data, setData] = useState<Loaded | null>(null);
@@ -131,9 +139,15 @@ export default function StatsScreen() {
 
   return (
     <ThemedView style={styles.screen}>
-      <View style={styles.chips}>
-        <Chip label="This year" on={thisYear} onPress={() => setRange('year')} />
-        <Chip label="All time" on={!thisYear} onPress={() => setRange('all')} />
+      {/* One pill with a fill that slides between the two, rather than two separate chips: this is a
+          choice between ranges, and the app already has a control that says so. */}
+      <View style={styles.range}>
+        <SegmentedControl
+          options={RANGES}
+          value={range}
+          onChange={setRange}
+          accessibilityLabel="Which period to show"
+        />
       </View>
 
       <ScrollView
@@ -248,18 +262,6 @@ export default function StatsScreen() {
 
       <GenreSheet genre={openGenre} libraryTotal={genres.total} onClose={() => setOpenGenre(null)} />
     </ThemedView>
-  );
-}
-
-function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.chip, on && styles.chipOn, pressed && styles.pressed]}>
-      <ThemedText style={[styles.chipLabel, on && styles.chipLabelOn]}>{label}</ThemedText>
-    </Pressable>
   );
 }
 
@@ -744,34 +746,10 @@ const styles = StyleSheet.create({
     gap: 16,
     padding: 20
   },
-  chips: {
-    flexDirection: 'row',
-    gap: 8,
+  range: {
     paddingHorizontal: 20,
-    paddingBottom: 4
-  },
-  chip: {
-    height: 38,
-    paddingHorizontal: 16,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  chipOn: {
-    backgroundColor: Colors.text,
-    borderColor: Colors.text
-  },
-  chipLabel: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: Colors.text
-  },
-  chipLabelOn: {
-    color: Colors.accent
+    // Air under the pill. With 4px the hero sat hard against it and the two read as one block.
+    paddingBottom: 12
   },
   pressed: {
     opacity: 0.7
@@ -779,6 +757,9 @@ const styles = StyleSheet.create({
   scroll: {
     gap: 16,
     paddingHorizontal: 20,
+    // The hero is the first thing in the scroll, and it wants room to be the thing it is rather than
+    // the next line after the control above it.
+    paddingTop: 8,
     paddingBottom: 20,
     width: '100%',
     maxWidth: MaxContentWidth,
