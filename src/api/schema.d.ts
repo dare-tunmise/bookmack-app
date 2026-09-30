@@ -1141,6 +1141,8 @@ export interface components {
             tags: string[];
             /** @description From the catalogs; what questions about your shelf match against */
             subjects: string[];
+            /** @description What the book is about, or null when its own sources said too little */
+            about: components["schemas"]["BookAbout"] | null;
             /** @description Kept off shelves shared with borrowers */
             hiddenWhenShared: boolean;
             /** @description Where the copy is: "Study, shelf 3" */
@@ -1167,6 +1169,18 @@ export interface components {
             language: string | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        BookAbout: {
+            /** @description Subjects the book is actually about, as short phrases */
+            themes: string[];
+            /** @description Real places it is set in or concerned with */
+            places: string[];
+            /** @description When it is set, in words; about the content, not the publication date */
+            period: string | null;
+            /** @description novel, poetry, memoir, essays, history... */
+            form: string | null;
+            /** @description Two or three sentences on what it is about */
+            text: string | null;
         };
         PageMeta: {
             limit: number;
@@ -1217,6 +1231,8 @@ export interface components {
                 /** @description Whether books that are lent out were excluded */
                 onlyAvailable: boolean;
                 category: string | null;
+                /** @description The country the question asked writers to be from, resolved against author records rather than the books */
+                authorFrom: string | null;
                 /**
                  * @description meaning when the shelf was compared by embedding, words when only shared wording was available
                  * @enum {string}

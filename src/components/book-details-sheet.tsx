@@ -202,6 +202,19 @@ function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) 
     }
   };
 
+  // What the book is about, compressed from its own catalog text by the API. Null for a book whose
+  // sources said too little, which is most of the ones with no description and few subjects.
+  const about = book.about;
+  // The publisher's blurb when there is one, otherwise the compressed version. Never both:
+  // about.text is a compression OF the description, so showing the two together says the same thing
+  // twice — but a book catalogued with headings and no blurb still has one summary worth reading.
+  const summary = book.description ?? about?.text ?? null;
+  // Form, period and setting on one line. A fact row each would bury them; together they read like
+  // the spine of the book.
+  const aboutContext = about
+    ? [about.form, about.period, about.places.join(', ') || null].filter(Boolean).join(' · ')
+    : '';
+
   const facts: [label: string, value: string | null][] = [
     // First, because "where did I put it" is the question this answers.
     ['Where it is', book.location],
@@ -346,11 +359,36 @@ function BookDetails({ book, onClose, onChanged, onDeleted }: BookDetailsProps) 
         </View>
       ) : null}
 
-      {book.description ? (
+      {/* The themes are the part worth scanning, so they sit above the prose rather than under it.
+          They are the catalog's words, not the owner's, which is why they are bordered rather than
+          tinted like the tags in the header. */}
+      {about && (about.themes.length > 0 || aboutContext) ? (
+        <View style={styles.about}>
+          {/* A string expression rather than bare JSX text: react/no-unescaped-entities rejects the
+              apostrophe, and the &apos; it suggests would render literally in React Native. */}
+          <ThemedText type="smallBold">{"What it's about"}</ThemedText>
+          {aboutContext ? (
+            <ThemedText type="caption" themeColor="textSecondary">
+              {aboutContext}
+            </ThemedText>
+          ) : null}
+          {about.themes.length > 0 ? (
+            <View style={styles.themes}>
+              {about.themes.map((theme) => (
+                <View key={theme} style={styles.themeChip}>
+                  <ThemedText type="caption">{theme}</ThemedText>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {summary ? (
         <View style={styles.about}>
           <ThemedText type="smallBold">About this book</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {book.description}
+            {summary}
           </ThemedText>
         </View>
       ) : null}
@@ -488,6 +526,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
     borderRadius: Radius.pill
+  },
+  themes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+    marginTop: Spacing.half
+  },
+  // Same size as a tag so the sheet keeps one pill idiom, but outlined instead of tinted: these are
+  // the catalog's words about the book, not the owner's words about their copy.
+  themeChip: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.half,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface
   },
   actions: {
     gap: Spacing.two
