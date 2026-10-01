@@ -42,7 +42,15 @@
           "barcodeScannerEnabled": true
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Allow BookMack to save your shelf posters to your photos.",
+          "photosPermission": "Allow BookMack to save your shelf posters to your photos.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "extra": {
       "eas": {
