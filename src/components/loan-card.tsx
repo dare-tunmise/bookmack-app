@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
@@ -20,8 +20,11 @@ type LoanCardProps = {
 
 // Who has the book and when it's due, with the actions for a loan that's still open.
 export function LoanCard({ loan, onReturned }: LoanCardProps) {
-  const [busy, setBusy] = useState<'return' | 'remind' | null>(null);
+  const [busy, setBusy] = useState<'return' | 'remind' | 'reminders' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Held locally: the parents of this card care whether the loan came back, not whether its
+  // reminders are on, so flipping the switch doesn't need to travel back up.
+  const [remindersOn, setRemindersOn] = useState(loan.reminder.enabled);
   const snackbar = useSnackbar();
   const borrowerName = loan.borrower?.name ?? 'a deleted borrower';
   const overdue = loan.status === 'overdue';
@@ -56,6 +59,32 @@ export function LoanCard({ loan, onReturned }: LoanCardProps) {
     }
   };
 
+  // The automatic ladder runs from two days before the due date to a month past it, then stops of
+  // its own accord (see config/reminderSchedule.mjs in bookmack-api). This is the switch for
+  // giving up on a loan sooner — a book you know is not coming back, or a borrower you would
+  // rather chase yourself.
+  const toggleReminders = async () => {
+    const turningOff = remindersOn;
+    setBusy('reminders');
+    setError(null);
+    try {
+      const { error: apiError, response } = turningOff
+        ? await api.DELETE('/loans/{id}/reminder', { params: { path: { id: loan.id } } })
+        : await api.PUT('/loans/{id}/reminder', { params: { path: { id: loan.id } }, body: {} });
+      if (!response.ok) throw toApiError(apiError);
+      setRemindersOn(!turningOff);
+      snackbar.show(
+        turningOff
+          ? `No more automatic reminders to ${borrowerName} about this book`
+          : `Automatic reminders back on for ${borrowerName}`
+      );
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     // Loan cards sit inside white sheets, so they use the app background to stand out.
     <ThemedView type="background" style={styles.card}>
@@ -78,6 +107,12 @@ export function LoanCard({ loan, onReturned }: LoanCardProps) {
         </ThemedText>
       ) : null}
 
+      {remindersOn ? null : (
+        <ThemedText type="small" themeColor="textSecondary">
+          Automatic reminders are off for this loan.
+        </ThemedText>
+      )}
+
       {loan.returnedAt ? null : (
         <View style={styles.actions}>
           <ButtonGroup
@@ -97,6 +132,23 @@ export function LoanCard({ loan, onReturned }: LoanCardProps) {
               }
             ]}
           />
+          {/* A third segment in the group above would truncate at this card's width, and this is a
+              quieter decision than the two beside it, so it sits under them as plain text. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy !== null, busy: busy === 'reminders' }}
+            accessibilityLabel={
+              remindersOn
+                ? 'Stop sending automatic reminders for this loan'
+                : 'Turn automatic reminders back on for this loan'
+            }
+            disabled={busy !== null}
+            onPress={toggleReminders}
+            style={({ pressed }) => [styles.toggle, pressed && styles.pressed]}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.underline}>
+              {remindersOn ? 'Stop automatic reminders' : 'Turn automatic reminders on'}
+            </ThemedText>
+          </Pressable>
         </View>
       )}
     </ThemedView>
@@ -113,6 +165,16 @@ const styles = StyleSheet.create({
     color: Brand.danger
   },
   actions: {
-    marginTop: Spacing.two
+    marginTop: Spacing.two,
+    gap: Spacing.two
+  },
+  toggle: {
+    alignSelf: 'center'
+  },
+  pressed: {
+    opacity: 0.6
+  },
+  underline: {
+    textDecorationLine: 'underline'
   }
 });
