@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionsProvider } from '@/components/app-actions';
 import { AppBar } from '@/components/app-bar';
 import { AppDrawerContent } from '@/components/app-drawer-content';
-import { BOTTOM_NAV_BODY, BOTTOM_NAV_GAP, BOTTOM_NAV_RADIUS, BottomNav } from '@/components/bottom-nav';
+import { BOTTOM_NAV_BODY, BOTTOM_NAV_RADIUS, BottomNav } from '@/components/bottom-nav';
 import { PendingRequestsProvider } from '@/components/pending-requests';
 import { Colors } from '@/constants/theme';
 
@@ -34,10 +34,12 @@ export default function DrawerLayout() {
                 />
               ),
               drawerType: 'front',
-              // The menu stops where the bar's own bottom edge is rather than running to the screen
-              // edge, so the two share a baseline. Below that line there is nothing but the gesture
-              // area, which neither should paint over.
-              drawerStyle: [styles.drawer, { marginBottom: insets.bottom + BOTTOM_NAV_GAP }],
+              // Full height, down to the screen edge. Stopping it on the bar's baseline was tried
+              // and was worse: it left a band of shelf showing between the menu and the bar, so the
+              // menu read as a card floating above the bar rather than running into it. The bar is
+              // the same white and is drawn over the menu's lower end, so the two meet without a
+              // seam of page colour between them.
+              drawerStyle: styles.drawer,
               overlayColor: Colors.backdrop
             }}>
             <Drawer.Screen name="index" options={{ title: 'Library' }} />
@@ -71,9 +73,8 @@ const styles = StyleSheet.create({
     width: 330,
     backgroundColor: Colors.surface,
     borderTopRightRadius: 20,
-    // The bar's own radius, not the menu's. The bar is drawn over the menu and runs past its right
-    // edge, so this corner is where one turns into the other — a smaller curve here would read as
-    // two shapes meeting, which is exactly what it used to look like.
+    // The bar's own radius, so the corner the menu turns on matches the corner the bar turns on
+    // where they overlap.
     borderBottomRightRadius: BOTTOM_NAV_RADIUS,
     overflow: 'hidden'
   }

@@ -51,9 +51,8 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
   }, [state.index, refreshPending]);
 
   return (
-    // No bottom safe-area padding: the panel itself now stops above that area, on the bar's
-    // baseline, so padding here would only push the footer up off its own edge.
-    <View style={styles.container}>
+    // The panel runs to the screen edge, so its own footer has to clear the gesture area itself.
+    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       {user ? (
         <View style={[styles.head, { paddingTop: 28 + insets.top }]}>
           <Image
@@ -177,7 +176,7 @@ const styles = StyleSheet.create({
   itemLabel: {
     // Takes the slack so a count badge sits against the right edge of the row.
     flex: 1,
-    fontFamily: Fonts.bodySemiBold,
+    fontFamily: Fonts.bodyBold,
     fontSize: 15,
     lineHeight: 20,
     color: Colors.text
