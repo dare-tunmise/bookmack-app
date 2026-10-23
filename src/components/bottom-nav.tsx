@@ -157,13 +157,15 @@ const styles = StyleSheet.create({
     opacity: 0.7
   },
   label: {
-    fontFamily: Fonts.bodySemiBold,
+    // Bold throughout rather than only when selected. At 11px a semibold reads as grey mush next
+    // to the glyph above it, and the selected item is already told apart by its colour and by
+    // being filled rather than outlined — it does not also need to be the only bold thing.
+    fontFamily: Fonts.bodyBold,
     fontSize: 11,
     lineHeight: 14,
     color: Colors.textSecondary
   },
   labelActive: {
-    fontFamily: Fonts.bodyBold,
     color: Colors.brand
   },
   // Sits off the icon's top-right corner.
