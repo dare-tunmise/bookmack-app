@@ -1,13 +1,14 @@
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import type { DrawerContentComponentProps } from 'expo-router/drawer';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/auth/session';
 import { Badge, PlanBadge } from '@/components/badge';
 import { BrandMark } from '@/components/brand-mark';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Icon, type IconName } from '@/components/icon';
 import { usePendingRequests } from '@/components/pending-requests';
 import { ThemedText } from '@/components/themed-text';
@@ -38,6 +39,9 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
   const { user, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const currentRoute = state.routes[state.index]?.name;
+  // Signing out used to happen on the first tap. It is a one-tap action with no undo that sits
+  // directly under the last navigation row, which is a place thumbs land by accident.
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const { count: pending, more: morePending, refresh: refreshPending } = usePendingRequests();
 
   // The drawer stays mounted, so without this the count would be whatever it was at sign-in.
@@ -47,7 +51,9 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
   }, [state.index, refreshPending]);
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    // No bottom safe-area padding: the panel itself now stops above that area, on the bar's
+    // baseline, so padding here would only push the footer up off its own edge.
+    <View style={styles.container}>
       {user ? (
         <View style={[styles.head, { paddingTop: 28 + insets.top }]}>
           <Image
@@ -86,13 +92,7 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
       </ScrollView>
 
       <View style={styles.foot}>
-        <Pressable
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={() => {
-            navigation.closeDrawer();
-            signOut();
-          }}>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setConfirmingSignOut(true)}>
           <ThemedText style={styles.signOut}>Sign out</ThemedText>
         </Pressable>
         <View style={styles.brand}>
@@ -100,6 +100,22 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
           <ThemedText style={styles.version}>{`BookMack v${Constants.expoConfig?.version ?? ''}`}</ThemedText>
         </View>
       </View>
+
+      {/* The drawer stays open behind the dialog, so cancelling puts you back exactly where you
+          were rather than on whichever screen was underneath. */}
+      <ConfirmDialog
+        visible={confirmingSignOut}
+        title="Sign out?"
+        message="Your library stays on your account — you will just need to sign in again."
+        confirmLabel="Sign out"
+        destructive
+        onConfirm={() => {
+          setConfirmingSignOut(false);
+          navigation.closeDrawer();
+          signOut();
+        }}
+        onCancel={() => setConfirmingSignOut(false)}
+      />
     </View>
   );
 }

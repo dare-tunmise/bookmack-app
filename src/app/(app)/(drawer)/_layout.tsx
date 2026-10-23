@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionsProvider } from '@/components/app-actions';
 import { AppBar } from '@/components/app-bar';
 import { AppDrawerContent } from '@/components/app-drawer-content';
-import { BOTTOM_NAV_BODY, BottomNav } from '@/components/bottom-nav';
+import { BOTTOM_NAV_BODY, BOTTOM_NAV_GAP, BOTTOM_NAV_RADIUS, BottomNav } from '@/components/bottom-nav';
 import { PendingRequestsProvider } from '@/components/pending-requests';
 import { Colors } from '@/constants/theme';
 
@@ -34,7 +34,10 @@ export default function DrawerLayout() {
                 />
               ),
               drawerType: 'front',
-              drawerStyle: styles.drawer,
+              // The menu stops where the bar's own bottom edge is rather than running to the screen
+              // edge, so the two share a baseline. Below that line there is nothing but the gesture
+              // area, which neither should paint over.
+              drawerStyle: [styles.drawer, { marginBottom: insets.bottom + BOTTOM_NAV_GAP }],
               overlayColor: Colors.backdrop
             }}>
             <Drawer.Screen name="index" options={{ title: 'Library' }} />
@@ -68,7 +71,10 @@ const styles = StyleSheet.create({
     width: 330,
     backgroundColor: Colors.surface,
     borderTopRightRadius: 20,
-    borderBottomRightRadius: 20,
+    // The bar's own radius, not the menu's. The bar is drawn over the menu and runs past its right
+    // edge, so this corner is where one turns into the other — a smaller curve here would read as
+    // two shapes meeting, which is exactly what it used to look like.
+    borderBottomRightRadius: BOTTOM_NAV_RADIUS,
     overflow: 'hidden'
   }
 });
