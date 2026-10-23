@@ -28,6 +28,7 @@
     "expo-updates": "~57.0.23",
     "expo-web-browser": "~57.0.3",
     "openapi-fetch": "^0.17.0",
+    "phosphor-react-native": "^3.0.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",

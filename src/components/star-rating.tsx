@@ -41,7 +41,7 @@ export function StarRating({ value, onChange, label }: StarRatingProps) {
             <Icon
               name="star"
               color={selected ? Colors.brand : Colors.border}
-              fill={selected ? Colors.brand : 'none'}
+              filled={selected}
               size={STAR_SIZE}
               strokeWidth={1.5}
             />
