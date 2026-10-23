@@ -1,4 +1,5 @@
 import type { ColorValue } from 'react-native';
+import Svg, { G, Line, Path } from 'react-native-svg';
 
 // Imported one file at a time, not from the package root. Metro does not tree-shake the root
 // barrel — importing from it pulls all ~1,500 icons, in six weights each, into the bundle, which
@@ -11,7 +12,6 @@ import { BasketIcon } from 'phosphor-react-native/src/icons/Basket';
 import { BellIcon } from 'phosphor-react-native/src/icons/Bell';
 import { BookOpenIcon } from 'phosphor-react-native/src/icons/BookOpen';
 import { BooksIcon } from 'phosphor-react-native/src/icons/Books';
-import { CameraIcon } from 'phosphor-react-native/src/icons/Camera';
 import { CaretRightIcon } from 'phosphor-react-native/src/icons/CaretRight';
 import { ChartPieSliceIcon } from 'phosphor-react-native/src/icons/ChartPieSlice';
 import { CheckIcon } from 'phosphor-react-native/src/icons/Check';
@@ -34,7 +34,6 @@ import { MonitorIcon } from 'phosphor-react-native/src/icons/Monitor';
 import { PencilSimpleIcon } from 'phosphor-react-native/src/icons/PencilSimple';
 import { PhoneIcon } from 'phosphor-react-native/src/icons/Phone';
 import { PlusIcon } from 'phosphor-react-native/src/icons/Plus';
-import { ScanIcon } from 'phosphor-react-native/src/icons/Scan';
 import { ShuffleIcon } from 'phosphor-react-native/src/icons/Shuffle';
 import { SignOutIcon } from 'phosphor-react-native/src/icons/SignOut';
 import { SparkleIcon } from 'phosphor-react-native/src/icons/Sparkle';
@@ -72,8 +71,6 @@ const ICONS = {
   loans: HandArrowUpIcon,
   // A tray with an arrow dropping into it. The arrow is the point — a request is incoming.
   requests: TrayArrowDownIcon,
-  scan: ScanIcon,
-  scanShelf: CameraIcon,
   ask: SparkleIcon,
   reading: BookOpenIcon,
   edit: PencilSimpleIcon,
@@ -107,7 +104,50 @@ const ICONS = {
   logOut: SignOutIcon
 } satisfies Record<string, PhosphorIcon>;
 
-export type IconName = keyof typeof ICONS;
+// The two drawings that were kept.
+//
+// Phosphor's nearest equivalents — Scan, and a camera for the shelf — lost what made these work:
+// they are a matched pair, the same viewfinder around a barcode and around a row of spines, so the
+// difference between scanning one book and scanning a shelf is readable at a glance instead of
+// being two unrelated objects. Nothing in the set does that, so these stay hand-drawn.
+const DRAWN = {
+  // A viewfinder around a barcode: what you point at the back of a book.
+  scan: (
+    <>
+      <Path d="M3 8.5V6a2 2 0 0 1 2-2h2.5" />
+      <Path d="M16.5 4H19a2 2 0 0 1 2 2v2.5" />
+      <Path d="M21 15.5V18a2 2 0 0 1-2 2h-2.5" />
+      <Path d="M7.5 20H5a2 2 0 0 1-2-2v-2.5" />
+      <Line x1="8.5" y1="9" x2="8.5" y2="15" />
+      <Line x1="12" y1="9" x2="12" y2="15" />
+      <Line x1="15.5" y1="9" x2="15.5" y2="15" />
+    </>
+  ),
+  // The same viewfinder, around a whole shelf rather than one barcode.
+  scanShelf: (
+    <>
+      <Path d="M3 8.5V6a2 2 0 0 1 2-2h2.5" />
+      <Path d="M16.5 4H19a2 2 0 0 1 2 2v2.5" />
+      <Path d="M21 15.5V18a2 2 0 0 1-2 2h-2.5" />
+      <Path d="M7.5 20H5a2 2 0 0 1-2-2v-2.5" />
+      <Line x1="8.5" y1="15" x2="8.5" y2="10" />
+      <Line x1="12" y1="15" x2="12" y2="8.5" />
+      <Line x1="15.5" y1="15" x2="15.5" y2="11" />
+      <Line x1="7" y1="15.75" x2="17" y2="15.75" />
+    </>
+  )
+};
+
+export type IconName = keyof typeof ICONS | keyof typeof DRAWN;
+
+// A 2px stroke at 12px is twice the weight, relative to the icon, that it is at 24px. Scaling it
+// keeps the small sizes from looking like blobs and the large ones like hairlines. Only the drawn
+// pair needs this; Phosphor carries its own weights.
+const opticalStroke = (size: number) => {
+  if (size <= 16) return 1.5;
+  if (size <= 24) return 1.75;
+  return 2;
+};
 
 // Phosphor has no stroke width: the weight *is* the stroke. The old call sites asked for one of
 // three things — heavier for emphasis at small sizes (a check inside a 14px chip), lighter for a
@@ -133,7 +173,24 @@ type IconProps = {
 };
 
 export function Icon({ name, color, size = 24, strokeWidth, filled = false }: IconProps) {
-  const Glyph = ICONS[name];
+  const drawn = DRAWN[name as keyof typeof DRAWN];
+  if (drawn) {
+    // No solid twin for these two, and they never need one: neither is ever a selected state.
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24">
+        <G
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth ?? opticalStroke(size)}
+          strokeLinecap="round"
+          strokeLinejoin="round">
+          {drawn}
+        </G>
+      </Svg>
+    );
+  }
+
+  const Glyph = ICONS[name as keyof typeof ICONS];
 
   // Phosphor types `color` as a plain string. Every colour in the design system is a hex literal,
   // so this is safe; it is a cast rather than a conversion because `ColorValue` also admits the
