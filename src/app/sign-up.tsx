@@ -2,10 +2,13 @@ import { Link } from 'expo-router';
 import { useState } from 'react';
 import { Linking, StyleSheet } from 'react-native';
 
+import { GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
 import { useSession } from '@/auth/session';
 import { AuthScreen } from '@/components/auth-screen';
 import { Button } from '@/components/button';
+import { AuthDivider, GoogleButton } from '@/components/google-button';
 import { PasswordRules, passwordMeetsRules } from '@/components/password-rules';
+import { useSnackbar } from '@/components/snackbar';
 import { FieldError, TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { PRIVACY_URL, TERMS_URL } from '@/constants/links';
@@ -16,6 +19,7 @@ const FIELDS = ['name', 'email', 'password'] as const;
 
 export default function SignUpScreen() {
   const { signUp } = useSession();
+  const snackbar = useSnackbar();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -98,6 +102,8 @@ export default function SignUpScreen() {
       <PasswordRules password={password} />
       <Button title="Create account" onPress={submit} loading={submitting} disabled={!canSubmit} />
       {errors.formError ? <FieldError message={errors.formError} /> : null}
+      <AuthDivider />
+      <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
       <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
         {'By continuing you agree to the '}
         <ThemedText type="linkPrimary" accessibilityRole="link" onPress={() => Linking.openURL(TERMS_URL)}>

@@ -2,9 +2,12 @@ import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 
+import { GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
 import { useSession } from '@/auth/session';
 import { AuthScreen } from '@/components/auth-screen';
 import { Button } from '@/components/button';
+import { AuthDivider, GoogleButton } from '@/components/google-button';
+import { useSnackbar } from '@/components/snackbar';
 import { FieldError, TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { useFormErrors } from '@/hooks/use-form-errors';
@@ -14,6 +17,7 @@ const FIELDS = ['email', 'password'] as const;
 
 export default function SignInScreen() {
   const { signIn } = useSession();
+  const snackbar = useSnackbar();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -86,6 +90,8 @@ export default function SignInScreen() {
       </Pressable>
       <Button title="Log in" onPress={submit} loading={submitting} disabled={!email.trim() || !password} />
       {errors.formError ? <FieldError message={errors.formError} /> : null}
+      <AuthDivider />
+      <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
       <Link href="/sign-up" replace style={styles.switch}>
         <ThemedText themeColor="textSecondary">New here? </ThemedText>
         <ThemedText type="linkPrimary">Create an account</ThemedText>
