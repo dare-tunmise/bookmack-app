@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
 import { ApiError, errorMessage, toApiError } from '@/api/errors';
@@ -51,6 +51,11 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
   const [needsPremium, setNeedsPremium] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const { show: showPlanLimit } = usePlanLimit();
+  // The list used to cap at a flat 260px, which showed four rows of five on every device and made
+  // a five-book answer look like a four-book one. Sized to the screen instead, so a tall phone
+  // shows the whole answer and a small one still leaves the question and the Ask button visible.
+  const { height: windowHeight } = useWindowDimensions();
+  const matchesMaxHeight = Math.round(windowHeight * 0.42);
 
   // Read when the sheet opens rather than once on mount: the sheet outlives a single use, and a
   // question asked last time should be there the next time it is opened.
@@ -219,16 +224,28 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
         </View>
       ) : null}
 
-      {matches && matches.length > 0 ? (
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.matches} contentContainerStyle={styles.matchesContent} nestedScrollEnabled>
+      {!book && matches && matches.length > 0 ? (
+        <View style={styles.matchesBlock}>
+          {/* Says how many there are, because a list that runs past the fold is otherwise
+              indistinguishable from a list with one thing in it. */}
+          <ThemedText type="smallBold" themeColor="textSecondary">
+            {matches.length === 1 ? '1 book' : `${matches.length} books`}
+          </ThemedText>
+        <ScrollView
+          showsVerticalScrollIndicator
+          style={[styles.matches, { maxHeight: matchesMaxHeight }]}
+          contentContainerStyle={styles.matchesContent}
+          nestedScrollEnabled>
           {matches.map((match) => (
             <Pressable
               key={match.book.id}
               accessibilityRole="button"
+              // The matches are KEPT, not cleared. Clearing them replaced the answer with one
+              // book and left no way back, so a mistaken tap looked exactly like a search that
+              // had only found one thing.
               onPress={() => {
                 setBook(match.book);
                 setWhy(match.reason);
-                setMatches(null);
               }}
               style={({ pressed }) => [styles.match, pressed && styles.matchPressed]}>
               <BookCover title={match.book.title} thumbnail={match.book.thumbnail} size={40} />
@@ -243,6 +260,7 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
             </Pressable>
           ))}
         </ScrollView>
+        </View>
       ) : null}
 
       <View style={styles.moods}>
@@ -264,6 +282,23 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
 
       {book ? (
         <View style={styles.result}>
+          {/* Only when there is a list to go back to: a mood pick has no list behind it. */}
+          {matches && matches.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back to the results"
+              hitSlop={8}
+              onPress={() => {
+                setBook(null);
+                setWhy(null);
+              }}
+              style={styles.backRow}>
+              <Icon name="arrowLeft" color={Colors.brand} size={16} />
+              <ThemedText type="linkPrimary">
+                {matches.length === 1 ? 'Back to the result' : `Back to all ${matches.length}`}
+              </ThemedText>
+            </Pressable>
+          ) : null}
           <View style={styles.bookRow}>
             <BookCover title={book.title} thumbnail={book.thumbnail} size={64} />
             <View style={styles.flex}>
@@ -298,6 +333,15 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
 }
 
 const styles = StyleSheet.create({
+  matchesBlock: {
+    gap: Spacing.two
+  },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start'
+  },
   recent: {
     gap: Spacing.two
   },
@@ -341,8 +385,8 @@ const styles = StyleSheet.create({
     gap: Spacing.three
   },
   matches: {
-    // About four rows; longer answers scroll inside the sheet.
-    maxHeight: 260
+    // Height comes from the screen, set inline — see matchesMaxHeight. A flat cap here showed
+    // four rows of five on every device, which is how a complete answer came to look partial.
   },
   matchesContent: {
     gap: Spacing.two
