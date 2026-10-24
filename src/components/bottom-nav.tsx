@@ -7,17 +7,17 @@ import { Badge } from '@/components/badge';
 import { Icon, type IconName } from '@/components/icon';
 import { usePendingRequests } from '@/components/pending-requests';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Fonts, Radius } from '@/constants/theme';
+import { Colors, Fonts } from '@/constants/theme';
 
-// A floating bar: inset from all four edges, one radius the whole way round, and a shadow instead
-// of a hairline — so it reads as a surface resting over the page rather than a strip welded to the
-// screen edge. It clears the gesture area rather than painting behind it.
+// A docked bar: flush to the left, right and bottom edges, square, with a hairline along its top.
+// It paints through the gesture area rather than clearing it, which is why its height carries the
+// bottom safe-area inset and its content is padded off it.
+//
+// It was floated once — inset on all four sides with a radius and a shadow — and that was wrong
+// twice over: it read as a card rather than a bar, and it gave the side menu an edge to collide
+// with. Do not float it again.
 const BAR_HEIGHT = 72;
 const BAR_PADDING_TOP = 12;
-
-// How far the bar sits in from the screen's sides, and above the safe-area inset.
-const SIDE_INSET = 12;
-const BAR_LIFT = 10;
 
 // The add button breaches the bar's top edge by this much.
 const BUTTON = 60;
@@ -28,15 +28,9 @@ const OVERHANG = 22;
 const CENTRE_GAP = 84;
 
 // What the drawer layout reserves in flow so no screen ends with content under the bar. The bar
-// floats, so this is its height plus the gap beneath it; the safe-area inset is added by the
-// layout, not here. These two move together — shrink one without the other and content hides.
-export const BOTTOM_NAV_BODY = BAR_HEIGHT + BAR_LIFT;
-
-// The side menu reads these so it ends on the same line as the bar, with the same corner. The two
-// overlap once the menu is open, and sharing a bottom edge and a radius is what makes that overlap
-// read as one surface rather than two stacked sheets of the same colour.
-export const BOTTOM_NAV_GAP = BAR_LIFT;
-export const BOTTOM_NAV_RADIUS = Radius.sheet;
+// is docked, so this is its own height and nothing else; the safe-area inset is added by the
+// layout. These two move together — shrink one without the other and content hides behind it.
+export const BOTTOM_NAV_BODY = BAR_HEIGHT;
 
 type NavItemProps = {
   label: string;
@@ -89,9 +83,9 @@ export function BottomNav() {
     // box-none: the strip above the bar is not a touch target, so taps there reach the content behind
     // it while the bar and the button still work.
     <View
-      style={[styles.container, { height: OVERHANG + BOTTOM_NAV_BODY + insets.bottom }]}
+      style={[styles.container, { height: OVERHANG + BAR_HEIGHT + insets.bottom }]}
       pointerEvents="box-none">
-      <View style={[styles.bar, { height: BAR_HEIGHT, bottom: insets.bottom + BAR_LIFT }]}>
+      <View style={[styles.bar, { height: BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom }]}>
         <NavItem label="Library" icon="library" active={pathname === '/'} onPress={() => go('/')} />
         <NavItem
           label="Requests"
@@ -108,7 +102,7 @@ export function BottomNav() {
       {/* The ring is the page colour showing through, which is what separates the button from the bar
           without painting a hole in it. */}
       <View
-        style={[styles.ring, { bottom: insets.bottom + BAR_LIFT + BAR_HEIGHT - BUTTON_RING / 2 }]}
+        style={[styles.ring, { bottom: insets.bottom + BAR_HEIGHT - BUTTON_RING / 2 }]}
         pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
@@ -133,20 +127,17 @@ const styles = StyleSheet.create({
   },
   bar: {
     position: 'absolute',
-    left: SIDE_INSET,
-    right: SIDE_INSET,
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingTop: BAR_PADDING_TOP,
     backgroundColor: Colors.surface,
-    borderRadius: Radius.sheet,
-    // The shadow does the separating now that there is no hairline and no shared edge with the
-    // screen. Kept soft: this lifts the bar off the page, it does not announce itself.
-    shadowColor: Colors.text,
-    shadowOpacity: 0.13,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12
+    // No radius and no shadow. A bar that meets three walls has no corners to round and nothing
+    // to cast onto; a hairline is all that is needed to separate it from the page above.
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border
   },
   item: {
     flex: 1,

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionsProvider } from '@/components/app-actions';
 import { AppBar } from '@/components/app-bar';
 import { AppDrawerContent } from '@/components/app-drawer-content';
-import { BOTTOM_NAV_BODY, BOTTOM_NAV_RADIUS, BottomNav } from '@/components/bottom-nav';
+import { BOTTOM_NAV_BODY, BottomNav } from '@/components/bottom-nav';
 import { PendingRequestsProvider } from '@/components/pending-requests';
 import { Colors } from '@/constants/theme';
 
@@ -34,11 +34,10 @@ export default function DrawerLayout() {
                 />
               ),
               drawerType: 'front',
-              // Full height, down to the screen edge. Stopping it on the bar's baseline was tried
-              // and was worse: it left a band of shelf showing between the menu and the bar, so the
-              // menu read as a card floating above the bar rather than running into it. The bar is
-              // the same white and is drawn over the menu's lower end, so the two meet without a
-              // seam of page colour between them.
+              // Full height, down to the screen edge, and square at the bottom. The bar is docked,
+              // flush and the same white, and is drawn over the menu's lower end — so the menu runs
+              // straight down behind it with nothing to meet. Stopping it short, or rounding that
+              // corner, both put an edge where there should be none; both were tried.
               drawerStyle: styles.drawer,
               overlayColor: Colors.backdrop
             }}>
@@ -73,9 +72,9 @@ const styles = StyleSheet.create({
     width: 330,
     backgroundColor: Colors.surface,
     borderTopRightRadius: 20,
-    // The bar's own radius, so the corner the menu turns on matches the corner the bar turns on
-    // where they overlap.
-    borderBottomRightRadius: BOTTOM_NAV_RADIUS,
+    // Square at the bottom. The menu passes behind the docked bar, so there is no corner to
+    // round — a radius here only draws an edge against a bar that has none.
+    borderBottomRightRadius: 0,
     overflow: 'hidden'
   }
 });
