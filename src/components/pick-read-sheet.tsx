@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
@@ -14,6 +14,7 @@ import { usePlanLimit } from '@/components/plan-limit-sheet';
 import { FieldError, TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
+import { clearRecentSearches, loadRecentSearches, rememberSearch } from '@/search/recent-searches';
 
 type Book = Schemas['Book'];
 type Match = Schemas['AskResult']['matches'][number];
@@ -48,13 +49,28 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [why, setWhy] = useState<string | null>(null);
   const [needsPremium, setNeedsPremium] = useState(false);
+  const [recent, setRecent] = useState<string[]>([]);
   const { show: showPlanLimit } = usePlanLimit();
+
+  // Read when the sheet opens rather than once on mount: the sheet outlives a single use, and a
+  // question asked last time should be there the next time it is opened.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    loadRecentSearches().then((saved) => {
+      if (!cancelled) setRecent(saved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
 
   // Asks the shelf a question in your own words. Premium only, so a free account is told why
   // rather than shown a failure.
-  const ask = async () => {
-    const asked = question.trim();
+  const ask = useCallback(async (raw?: string) => {
+    const asked = (raw ?? question).trim();
     if (!asked || asking) return;
+    if (raw !== undefined) setQuestion(raw);
 
     setAsking(true);
     setMood(null);
@@ -68,12 +84,20 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
       if (!data) throw toApiError(error);
       setMatches(data.data.matches);
       if (data.data.matches.length === 0) setMessage('Nothing on your shelf matches that.');
+      // Saved even when nothing matched: a question worth asking is worth not retyping, and the
+      // answer may differ once more of the shelf is described.
+      setRecent(await rememberSearch(asked));
     } catch (err) {
       if (err instanceof ApiError && err.code === 'FEATURE_NOT_IN_PLAN') setNeedsPremium(true);
       else if (!showPlanLimit(err)) setMessage(errorMessage(err));
     } finally {
       setAsking(false);
     }
+  }, [question, asking, showPlanLimit]);
+
+  const forgetRecent = async () => {
+    await clearRecentSearches();
+    setRecent([]);
   };
 
   const close = () => {
@@ -142,12 +166,44 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
         label="Ask for something"
         value={question}
         onChangeText={setQuestion}
-        onSubmitEditing={ask}
+        onSubmitEditing={() => ask()}
         returnKeyType="search"
         autoCapitalize="none"
         hint='For example: "a book about Nigerian history"'
       />
-      {question.trim() ? <Button title="Ask" onPress={ask} loading={asking} /> : null}
+      {question.trim() ? <Button title="Ask" onPress={() => ask()} loading={asking} /> : null}
+
+      {/* Only while the field is empty and nothing is on screen: once there is a question or an
+          answer, the recents are in the way of what the reader came for. */}
+      {!question.trim() && recent.length > 0 && !matches && !book && !needsPremium ? (
+        <View style={styles.recent}>
+          <View style={styles.recentHead}>
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              Recent
+            </ThemedText>
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={forgetRecent}>
+              <ThemedText type="small" themeColor="textSecondary">
+                Clear
+              </ThemedText>
+            </Pressable>
+          </View>
+          <View style={styles.recentList}>
+            {recent.map((entry) => (
+              <Pressable
+                key={entry}
+                accessibilityRole="button"
+                accessibilityLabel={`Ask again: ${entry}`}
+                onPress={() => ask(entry)}
+                style={({ pressed }) => [styles.recentRow, pressed && styles.recentRowPressed]}>
+                <Icon name="clock" color={Colors.textSecondary} size={16} />
+                <ThemedText type="small" numberOfLines={1} style={styles.flex}>
+                  {entry}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {needsPremium ? (
         <View style={styles.result}>
@@ -242,6 +298,29 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
 }
 
 const styles = StyleSheet.create({
+  recent: {
+    gap: Spacing.two
+  },
+  recentHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  recentList: {
+    gap: 2
+  },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: Radius.input,
+    backgroundColor: Colors.background
+  },
+  recentRowPressed: {
+    opacity: 0.7
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
