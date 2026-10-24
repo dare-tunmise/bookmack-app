@@ -21,6 +21,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
 import { formatDate } from '@/lib/loans';
+import { timeAgo } from '@/lib/time';
 
 type Book = Schemas['Book'];
 type Loan = Schemas['Loan'];
@@ -108,6 +109,12 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
   // null while it is still loading, so the section can hold its place instead of appearing late.
   const [similar, setSimilar] = useState<Book[] | null>(null);
   const [readingOpen, setReadingOpen] = useState(false);
+  // The newest reading entry, for "last read" and the note left at it. Display only now: notes
+  // are written where they are read, not inside the sheet you open to type three digits.
+  // Carries the book it came from, so a stale entry from the previously-opened book is ignored
+  // rather than cleared in an effect — clearing it there is a synchronous setState in render's
+  // shadow, and it would briefly show one book's note under another's title.
+  const [lastEntry, setLastEntry] = useState<{ bookId: string; at: string; note: string | null } | null>(null);
 
   // Enough to say where the book is up to. Unlike the sheet's own bar, this one follows what is
   // saved rather than what is being typed — there is nothing to type here.
@@ -121,6 +128,66 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
   // is the obvious next move, and this sheet is the one place you are already thinking about it.
   const snackbar = useSnackbar();
   const [wanting, setWanting] = useState(false);
+
+  const entry = lastEntry?.bookId === book.id && isReading ? lastEntry : null;
+  const lastRead = entry ? timeAgo(entry.at) : null;
+  // Only the newest note counts: once further progress is logged without one, the old note
+  // describes a place the reader has already left.
+  const leftOff = entry?.note ?? null;
+
+  useEffect(() => {
+    if (!isReading) return undefined;
+    let cancelled = false;
+    api
+      .GET('/books/{id}/reading', { params: { path: { id: book.id }, query: { limit: 1 } } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const latest = data?.data?.[0];
+        setLastEntry(latest ? { bookId: book.id, at: latest.at, note: latest.note ?? null } : null);
+      })
+      // Nothing to show beats an error about a note: the rest of the sheet still works.
+      .catch(() => {
+        if (!cancelled) setLastEntry(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [book.id, book.currentPage, isReading]);
+
+  const setReadingStatus = async (value: ReadingStatus, extra: { currentPage?: number } = {}) => {
+    setError(null);
+    try {
+      const { data, error: apiError } = await api.PATCH('/books/{id}', {
+        params: { path: { id: book.id } },
+        body: { readingStatus: value, ...extra }
+      });
+      if (!data) throw toApiError(apiError);
+      onChanged(data.data);
+      return data.data;
+    } catch (err) {
+      setError(errorMessage(err));
+      return null;
+    }
+  };
+
+  // One tap: the book goes to page 1 and starts counting. Someone already part-way in uses
+  // Update page and types the page they are actually on.
+  const startReading = () =>
+    setReadingStatus(book.readingStatus === 'read' ? 'rereading' : 'reading', { currentPage: 1 });
+
+  // Giving up keeps how far you got — and is undoable, so it never stops to ask.
+  const stopReading = async () => {
+    const previousStatus = book.readingStatus;
+    const previousPage = book.currentPage ?? null;
+    const saved = await setReadingStatus('abandoned');
+    if (!saved) return;
+    snackbar.show('Stopped reading', {
+      label: 'Undo',
+      onPress: () => {
+        setReadingStatus(previousStatus, previousPage === null ? {} : { currentPage: previousPage });
+      }
+    });
+  };
 
   const wantAgain = async () => {
     setWanting(true);
@@ -298,34 +365,60 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
         <StarRating label="Your rating" value={rating} onChange={rate} />
       </View>
 
-      {/* Reading used to be this whole block — status, page, note, trail — wedged between the
-          rating and the loan card. It is the one part you come back to repeatedly, so it gets its
-          own sheet and leaves a single row here saying where the book is up to. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${READING_LABELS[book.readingStatus]}. Open reading`}
-        onPress={() => setReadingOpen(true)}
-        style={({ pressed }) => [styles.readingRow, pressed && styles.readingRowPressed]}>
-        <Icon name="reading" color={Colors.brand} size={20} />
-        <View style={styles.readingText}>
-          <ThemedText type="smallBold">{READING_LABELS[book.readingStatus]}</ThemedText>
-          {isReading && total ? (
-            <View style={styles.progress}>
+      {/* Where the book is up to, and the one action that follows from it.
+          A book being read leads with Update page; one that is not leads with Start reading, which
+          puts it on page 1 in a single tap. Stop reading is deliberately quiet text rather than a
+          button: it is rare, and it is not what anyone came here to do. */}
+      <View style={styles.readingBlock}>
+        <View style={styles.readingTop}>
+          <ThemedText type="caption" style={styles.readingState}>
+            {isReading ? READING_LABELS[book.readingStatus] : book.readingStatus === 'read' ? 'Read' : 'Not started'}
+          </ThemedText>
+          <ThemedText type="caption" themeColor="textSecondary">
+            {isReading && lastRead ? `Last read ${lastRead}` : total ? `${total} pages` : ''}
+          </ThemedText>
+        </View>
+
+        {isReading ? (
+          <>
+            <ThemedText type="h2" style={styles.readingPage}>
+              {pagesIn > 0 ? `Page ${pagesIn}` : 'Not started yet'}
+              {total ? <ThemedText type="small" themeColor="textSecondary">{`  of ${total}`}</ThemedText> : null}
+            </ThemedText>
+            {total ? (
               <View style={styles.track}>
                 <View style={[styles.fill, { width: fillWidth }]} />
               </View>
-              <ThemedText type="caption" themeColor="textSecondary">
-                {pagesIn > 0 ? `Page ${pagesIn} of ${total} · ${percent}%` : `${total} pages`}
-              </ThemedText>
-            </View>
-          ) : (
-            <ThemedText type="caption" themeColor="textSecondary">
-              Progress, a note for next time, and how it has gone
+            ) : null}
+            {leftOff ? (
+              <View style={styles.leftOff}>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  Where you left off
+                </ThemedText>
+                <ThemedText type="small">{leftOff}</ThemedText>
+              </View>
+            ) : null}
+          </>
+        ) : null}
+      </View>
+
+      {isReading ? (
+        <>
+          <Button title="Update page" onPress={() => setReadingOpen(true)} />
+          <Pressable
+            accessibilityRole="button"
+            onPress={stopReading}
+            style={({ pressed }) => [styles.quiet, pressed && styles.quietPressed]}>
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              Stop reading
             </ThemedText>
-          )}
-        </View>
-        <Icon name="chevronRight" color={Colors.textSecondary} size={20} />
-      </Pressable>
+          </Pressable>
+        </>
+      ) : book.readingStatus === 'read' ? (
+        <Button title="Read it again" variant="secondary" onPress={startReading} />
+      ) : (
+        <Button title="Start reading" variant="secondary" onPress={startReading} />
+      )}
 
       {onLoan ? (
         loan === undefined ? (
@@ -505,6 +598,8 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
           setReadingOpen(false);
           edit();
         }}
+        // Offered only on the Finished screen, and only when someone is actually waiting.
+        onLend={lend}
       />
 
       <ConfirmDialog
@@ -554,24 +649,35 @@ const styles = StyleSheet.create({
   rating: {
     gap: 4
   },
-  // One tappable row rather than a section: state, how far in, and a chevron into the sheet.
-  readingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
+  // Where the book is up to. A panel, not a button: the action sits under it, named.
+  readingBlock: {
     padding: Spacing.three,
     borderRadius: Radius.card,
-    backgroundColor: Colors.background
+    backgroundColor: Colors.background,
+    gap: Spacing.two
   },
-  readingRowPressed: {
-    opacity: 0.7
+  readingTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: Spacing.two
   },
-  readingText: {
-    flex: 1,
-    gap: Spacing.one
+  readingState: {
+    color: Colors.brand,
+    fontFamily: Fonts.bodyBold
   },
-  progress: {
-    gap: Spacing.one
+  readingPage: {
+    marginTop: Spacing.half
+  },
+  leftOff: {
+    gap: Spacing.half
+  },
+  quiet: {
+    alignItems: 'center',
+    paddingVertical: Spacing.two
+  },
+  quietPressed: {
+    opacity: 0.6
   },
   track: {
     height: 6,

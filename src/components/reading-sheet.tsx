@@ -1,125 +1,44 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
+import { BookCover } from '@/components/book-cover';
 import { BottomSheet } from '@/components/bottom-sheet';
-import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
-import { SegmentedControl } from '@/components/segmented-control';
-import { FieldError, TextField } from '@/components/text-field';
+import { useSnackbar } from '@/components/snackbar';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Radius, Spacing } from '@/constants/theme';
-import { formatDate } from '@/lib/loans';
+import { Colors, Fonts, Radius, Spacing } from '@/constants/theme';
 
 type Book = Schemas['Book'];
-type ReadingEntry = Schemas['ReadingEntry'];
-type ReadingStatus = Book['readingStatus'];
 
-const READING_OPTIONS = [
-  { key: 'unread', label: 'Unread' },
-  { key: 'reading', label: 'Reading' },
-  { key: 'read', label: 'Read' }
-] as const satisfies readonly { key: ReadingStatus; label: string }[];
+// One question: what page are you on.
+//
+// What used to be here asked four things at once — a status control, a page, a note and a history
+// to read — and it saved on every blur, so one evening with a novel left a row of edits behind it
+// and buried the activity page. This asks for the page, on a keypad built for the job, and saves
+// once, when you say so.
+//
+// Marking a book read is not a separate job either: type the last page and Save becomes "I
+// finished it". That is now the only way to finish a book from here, which is why the
+// Unread/Reading/Read control is gone rather than hidden somewhere else.
+//
+// Notes moved to the book, where they are read. A field asking what was happening, inside the
+// sheet you open to type three digits, is a form about closing a book rather than closing it.
 
-// Giving up on a book and starting one again are real states, but they are not how most books
-// go. They appear in the control only once a book is actually in one, because four segments fit
-// across a phone and five do not. You get into them from the buttons underneath instead.
-const EXTENDED_LABELS: Partial<Record<ReadingStatus, string>> = {
-  abandoned: 'Gave up',
-  rereading: 'Again'
+const MAX_DIGITS = 5;
+// Past this a "page" is a typo, not a book. Only used when the catalogue has no page count.
+const MAX_PAGE = 99999;
+
+type Pending = { borrower: string } | null;
+
+const percentOf = (page: number, total: number) => Math.round((page / total) * 100);
+
+const ordinal = (n: number) => {
+  const rest = n % 100;
+  if (rest >= 11 && rest <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 };
-
-// Enough history to work out a pace from, without paging.
-const TRAIL_LIMIT = 20;
-// How many are shown before the rest are summarised. A sheet is not a log file.
-const TRAIL_SHOWN = 4;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// Each row says why it exists, taken from the stored reason rather than inferred from the page.
-// "Started page 0" is technically true and reads like a bug.
-const entryLabel = (entry: ReadingEntry) => {
-  if (entry.source === 'started') return 'Started reading';
-  if (entry.source === 'restarted') return 'Started again';
-  if (entry.source === 'finished') return 'Finished';
-  return `Page ${entry.page}`;
-};
-
-// Pages the reader actually reported, over the days between reporting them.
-//
-// Two rules keep this honest, and both matter more than they look:
-//
-// Only this pass counts. A re-read starts again from zero, so entries before the restart
-// describe a different journey through the book. The restart itself stays, as the anchor.
-//
-// Finishing is excluded. Marking a book read records its last page — a jump to the end that
-// nobody sat and read at that moment. Counting it turns "I finally ticked it off a week later"
-// into a heroic weekly page count, which is a lie told confidently.
-//
-// After that: two points and a full day are the minimum for the arithmetic to mean anything.
-const paceText = (entries: ReadingEntry[]) => {
-  const restartAt = entries.findIndex((entry) => entry.source === 'restarted');
-  const pass = restartAt === -1 ? entries : entries.slice(0, restartAt + 1);
-  const reported = pass.filter((entry) => entry.source !== 'finished');
-  if (reported.length < 2) return null;
-
-  const newest = reported[0];
-  const oldest = reported[reported.length - 1];
-  const pages = newest.page - oldest.page;
-  const days = (new Date(newest.at).getTime() - new Date(oldest.at).getTime()) / DAY_MS;
-  if (pages <= 0 || days < 1) return null;
-
-  const perWeek = Math.round((pages / days) * 7);
-  if (perWeek < 1) return null;
-  return `About ${perWeek} ${perWeek === 1 ? 'page' : 'pages'} a week so far`;
-};
-
-// What actually happened with this book, newest first. Hidden entirely below two entries: a
-// single row is not a trail, it is the moment you tapped "Reading".
-function ReadingTrail({ entries }: { entries: ReadingEntry[] }) {
-  if (entries.length < 2) return null;
-
-  const shown = entries.slice(0, TRAIL_SHOWN);
-  const pace = paceText(entries);
-
-  return (
-    <View style={styles.trail}>
-      <ThemedText type="smallBold">How it has gone</ThemedText>
-
-      {shown.map((entry, index) => (
-        <View key={entry.id} style={styles.trailRow}>
-          <View style={styles.trailMarker}>
-            <View style={[styles.trailDot, index === 0 && styles.trailDotLatest]} />
-            {index < shown.length - 1 ? <View style={styles.trailLine} /> : null}
-          </View>
-          <View style={styles.trailText}>
-            <ThemedText type="small">{entryLabel(entry)}</ThemedText>
-            <ThemedText type="caption" themeColor="textSecondary">
-              {formatDate(entry.at)}
-            </ThemedText>
-            {entry.note ? (
-              <ThemedText type="caption" themeColor="textSecondary" style={styles.trailNote}>
-                {entry.note}
-              </ThemedText>
-            ) : null}
-          </View>
-        </View>
-      ))}
-
-      {entries.length > TRAIL_SHOWN ? (
-        <ThemedText type="caption" themeColor="textSecondary">
-          {`and ${entries.length - TRAIL_SHOWN} earlier`}
-        </ThemedText>
-      ) : null}
-
-      {pace ? (
-        <ThemedText type="small" themeColor="textSecondary">
-          {pace}
-        </ThemedText>
-      ) : null}
-    </View>
-  );
-}
 
 type ReadingSheetProps = {
   visible: boolean;
@@ -129,329 +48,553 @@ type ReadingSheetProps = {
   onChanged: (book: Book) => void;
   // Somewhere to go when the catalogue's page count does not match the copy in your hand.
   onEditBook: () => void;
+  // Offered only when someone is already waiting on this book, on the one screen where finishing
+  // it has just become true.
+  onLend?: () => void;
 };
 
-// Everything about reading one book, in its own sheet.
-//
-// This used to sit inside the details sheet, between the rating and the loan card. Reading is the
-// one part of a book's page you come back to repeatedly — a page number, a note, the trail — while
-// the rest (publisher, ISBN, what it is about) is read once. Putting it behind its own sheet gives
-// it the whole screen and leaves the details sheet scannable.
-//
-// It opens on top of the details sheet rather than replacing it, which is the same nesting the
-// delete confirmation already does from in there.
-export function ReadingSheet({ visible, book, onClose, onChanged, onEditBook }: ReadingSheetProps) {
+export function ReadingSheet({ visible, book, onClose, onChanged, onEditBook, onLend }: ReadingSheetProps) {
   return (
     <BottomSheet visible={visible} onClose={onClose}>
-      {/* Remount for a different book, or after the status changes, so no field keeps a stale
-          value from the last one. */}
+      {/* Remounted per book so nothing typed for one carries into the next. */}
       <Reading
-        key={`${book.id}:${book.readingStatus}`}
+        key={book.id}
         book={book}
+        onClose={onClose}
         onChanged={onChanged}
         onEditBook={onEditBook}
+        onLend={onLend}
       />
     </BottomSheet>
   );
 }
 
-function Reading({
-  book,
-  onChanged,
-  onEditBook
-}: {
-  book: Book;
-  onChanged: (book: Book) => void;
-  onEditBook: () => void;
-}) {
-  const [readingStatus, setReadingStatus] = useState<ReadingStatus>(book.readingStatus);
-  const [page, setPage] = useState(book.currentPage ? String(book.currentPage) : '');
-  const [note, setNote] = useState('');
+function Reading({ book, onClose, onChanged, onEditBook, onLend }: Omit<ReadingSheetProps, 'visible'>) {
+  const snackbar = useSnackbar();
+  const [finished, setFinished] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // undefined while loading; null when the last thing recorded carried no note. Only the newest
-  // entry counts: once further progress is logged without one, the old note describes a place the
-  // reader has already left, and showing it then would be worse than showing nothing.
-  const [memory, setMemory] = useState<{ note: string; page: number } | null | undefined>(undefined);
-  // The history itself. null while loading, so the trail can stay out of the way rather than
-  // appearing late and shifting everything under your thumb.
-  const [trail, setTrail] = useState<ReadingEntry[] | null>(null);
+  const [stars, setStars] = useState(book.rating ?? 0);
+  const [readThisYear, setReadThisYear] = useState<number | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
 
-  // This book's reading history: the trail, and the note left at the newest point in it.
-  const loadReading = useCallback(() => {
-    let cancelled = false;
-    api
-      .GET('/books/{id}/reading', { params: { path: { id: book.id }, query: { limit: TRAIL_LIMIT } } })
-      .then(({ data }) => {
-        if (cancelled) return;
-        const entries = data?.data ?? [];
-        setTrail(entries);
-        const latest = entries[0];
-        setMemory(latest?.note ? { note: latest.note, page: latest.page } : null);
-      })
-      // Nothing to show beats an error about a note: the rest of the sheet still works.
-      .catch(() => {
-        if (cancelled) return;
-        setTrail([]);
-        setMemory(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [book.id]);
+  // useState, not useRef: the values are read during render to build the style, and a ref read in
+  // render is exactly what the hooks rule forbids. This is how bottom-sheet.tsx holds its own.
+  const [shake] = useState(() => new Animated.Value(0));
+  const [caret] = useState(() => new Animated.Value(1));
+  const [reduceMotion, setReduceMotion] = useState(false);
 
-  useEffect(() => loadReading(), [loadReading]);
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setReduceMotion)
+      .catch(() => {});
+  }, []);
 
-  // Like the rating: saves immediately and puts the old value back if it fails.
-  const setReading = async (value: ReadingStatus) => {
-    const previous = readingStatus;
-    setReadingStatus(value);
+  // The caret is the only thing saying the keypad is live, since no system keyboard comes up. It
+  // holds still for anyone who has asked for less motion.
+  useEffect(() => {
+    if (finished || reduceMotion) return undefined;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(caret, { toValue: 0, duration: 10, delay: 520, useNativeDriver: true }),
+        Animated.timing(caret, { toValue: 1, duration: 10, delay: 520, useNativeDriver: true })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [caret, finished, reduceMotion]);
+
+  const total = book.pageCount ?? null;
+  const savedPage = book.currentPage ?? 0;
+  const value = typed ? Number(typed) : null;
+  const over = value !== null && total !== null && value > total;
+  const atEnd = value !== null && total !== null && value === total;
+  const valid = value !== null && value >= 1 && value <= (total ?? MAX_PAGE);
+  // While the number is impossible the bar holds where it was. Letting it run to 100% would say
+  // the book was finished by a typo.
+  const shown = valid && !over ? (value as number) : savedPage;
+
+  const bump = useCallback(() => {
+    if (reduceMotion) return;
+    shake.setValue(0);
+    Animated.sequence([
+      Animated.timing(shake, { toValue: 1, duration: 70, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: -1, duration: 70, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 0, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: true })
+    ]).start();
+  }, [reduceMotion, shake]);
+
+  const press = (key: string) => {
+    setError(null);
+    if (key === 'del') {
+      setTyped((current) => current.slice(0, -1));
+      return;
+    }
+    if (typed.length >= MAX_DIGITS) return;
+    // A page cannot begin with a zero, and "0" alone is not a page.
+    if (typed === '' && key === '0') return;
+    const next = typed + key;
+    setTyped(next);
+    // Only on the digit that takes it past the end, not on every one after it.
+    if (total !== null && Number(next) > total && Number(typed || '0') <= total) bump();
+  };
+
+  const markFinished = async () => {
+    setSaving(true);
     setError(null);
     try {
       const { data, error: apiError } = await api.PATCH('/books/{id}', {
         params: { path: { id: book.id } },
-        body: { readingStatus: value }
+        body: { readingStatus: 'read' }
       });
       if (!data) throw toApiError(apiError);
-      // The server fills in the dates, and clears the page once a book is finished.
-      setPage(data.data.currentPage ? String(data.data.currentPage) : '');
       onChanged(data.data);
+      setFinished(true);
+      // Both of these are only worth asking for once a book is actually finished, and neither is
+      // allowed to hold the sheet up: it is already open and correct without them.
+      api
+        .GET('/stats', {})
+        .then(({ data: stats }) => setReadThisYear(stats?.data?.booksReadThisYear ?? null))
+        .catch(() => {});
+      api
+        .GET('/requests', { params: { query: { status: 'pending', limit: 50 } } })
+        .then(({ data: requests }) => {
+          const match = requests?.data?.find((request) => request.book?.id === book.id);
+          setPending(match?.borrower ? { borrower: match.borrower.name } : null);
+        })
+        .catch(() => {});
     } catch (err) {
-      setReadingStatus(previous);
       setError(errorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
-  // The page and the note save together, because they are one act: "I stopped here, and this is
-  // what was happening". A note has to reach the server even when the page has not moved, which is
-  // why this does not bail out the moment the page is unchanged.
-  const saveReading = async () => {
-    const trimmed = page.trim();
-    const value = trimmed === '' ? null : Number(trimmed);
-    if (value !== null && !Number.isInteger(value)) return;
-    // A page before the start, or past the last one, is a typo rather than progress. Neither is
-    // left to the server: it rejects a negative page with a 400 the reader did not cause, and it
-    // accepts one past the end without complaint, which then saves nonsense.
-    if (value !== null && value < 0) return;
-    if (value !== null && book.pageCount != null && value > book.pageCount) return;
+  const savePage = async () => {
+    if (value === null || !valid || over) return;
+    if (atEnd) return markFinished();
 
-    const noteText = note.trim();
-    const pageChanged = value !== (book.currentPage ?? null);
-    if (!pageChanged && noteText === '') return;
-
+    const previous = book.currentPage ?? null;
+    setSaving(true);
     setError(null);
     try {
       const { data, error: apiError } = await api.PATCH('/books/{id}', {
         params: { path: { id: book.id } },
-        body: {
-          ...(pageChanged ? { currentPage: value } : {}),
-          ...(noteText === '' ? {} : { readingNote: noteText })
+        // Nothing else in the body. The server treats a reading-only update as reading rather
+        // than as an edit, so turning pages no longer fills the activity timeline.
+        body: { currentPage: value }
+      });
+      if (!data) throw toApiError(apiError);
+      onChanged(data.data);
+      onClose();
+      // Undo instead of "are you sure": the save never stops to ask, and taking it back is one
+      // tap on the message that says it happened.
+      snackbar.show(total ? `Page ${value} · ${percentOf(value, total)}% read` : `Page ${value}`, {
+        label: 'Undo',
+        onPress: async () => {
+          const { data: reverted } = await api.PATCH('/books/{id}', {
+            params: { path: { id: book.id } },
+            body: { currentPage: previous }
+          });
+          if (reverted) onChanged(reverted.data);
         }
       });
-      if (!data) throw toApiError(apiError);
-      onChanged(data.data);
-      // What was just written becomes what you see on the way back in, and the field empties for
-      // the next one. Set straight away so there is no gap while the refetch is in flight.
-      if (noteText !== '') {
-        setMemory({ note: noteText, page: value ?? book.currentPage ?? 0 });
-        setNote('');
-      }
-      // The trail gained a row, so ask for it again rather than leaving it a step behind what
-      // the reader just did.
-      loadReading();
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Re-reading a book is reading it, so it gets the same tools.
-  const isReading = readingStatus === 'reading' || readingStatus === 'rereading';
-  // Driven by what is typed, not by what is saved, so the bar moves under your thumb. That
-  // immediate answer is the whole reason to bother entering a page.
-  const typedPage = Number(page.trim());
-  const pagesIn = Number.isFinite(typedPage) && typedPage > 0 ? Math.floor(typedPage) : 0;
-  const total = book.pageCount ?? null;
-  // Typed past the last page. Worth saying out loud rather than silently clamping: the number in
-  // the field is what the reader believes, and correcting it behind their back hides the typo.
-  const pastEnd = total !== null && pagesIn > total;
-  // The bar follows what is typed — but not a typo. An over-run would slam it to 100% and say the
-  // book was finished, so while the number is impossible the bar holds at the last page that
-  // actually saved.
-  const shownPage = pastEnd ? book.currentPage ?? 0 : pagesIn;
-  const percent = total ? Math.min(100, Math.round((shownPage / total) * 100)) : 0;
-  const pagesToGo = total ? Math.max(0, total - shownPage) : 0;
-  const fillWidth: `${number}%` = `${percent}%`;
+  const rate = async (next: number) => {
+    const previous = stars;
+    setStars(next);
+    try {
+      const { data } = await api.PATCH('/books/{id}', {
+        params: { path: { id: book.id } },
+        body: { rating: next }
+      });
+      if (data) onChanged(data.data);
+    } catch {
+      setStars(previous);
+    }
+  };
 
-  const extendedLabel = EXTENDED_LABELS[readingStatus];
-  const readingOptions: readonly { key: ReadingStatus; label: string }[] = extendedLabel
-    ? [...READING_OPTIONS, { key: readingStatus, label: extendedLabel }]
-    : READING_OPTIONS;
+  if (finished) {
+    return (
+      <View style={styles.done}>
+        <View style={styles.ring}>
+          <Icon name="check" color={Colors.text} size={38} strokeWidth={3} />
+        </View>
+        <ThemedText type="subtitle" style={styles.doneTitle}>
+          Finished
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.doneSub}>
+          {book.title}
+          {readThisYear ? ` · your ${ordinal(readThisYear)} book this year` : ''}
+        </ThemedText>
+
+        <ThemedText type="smallBold" style={styles.question}>
+          How was it?
+        </ThemedText>
+        <View style={styles.stars}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <Pressable
+              key={n}
+              accessibilityRole="button"
+              accessibilityLabel={`${n} ${n === 1 ? 'star' : 'stars'}`}
+              onPress={() => rate(n)}
+              style={styles.star}>
+              <Icon name="star" size={36} color={n <= stars ? Colors.brand : Colors.border} filled={n <= stars} />
+            </Pressable>
+          ))}
+        </View>
+        <ThemedText type="caption" themeColor="textSecondary" style={styles.hint}>
+          Optional. You can rate it later.
+        </ThemedText>
+
+        {pending && onLend ? (
+          <View style={styles.request}>
+            <View style={styles.avatar}>
+              <ThemedText type="caption" style={styles.avatarText}>
+                {pending.borrower.slice(0, 2).toUpperCase()}
+              </ThemedText>
+            </View>
+            <ThemedText type="small" style={styles.requestText}>
+              {pending.borrower} asked to borrow this.
+            </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                onClose();
+                onLend();
+              }}>
+              <ThemedText type="smallBold" style={styles.lend}>
+                Lend it
+              </ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <Pressable accessibilityRole="button" onPress={onClose} style={[styles.go, styles.goOn, styles.doneGo]}>
+          <ThemedText type="button" style={styles.goOnText}>
+            Done
+          </ThemedText>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const canSave = valid && !over && !saving;
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-        <Icon name="reading" color={Colors.brand} size={22} />
-        <View style={styles.headline}>
+    <View style={styles.pad}>
+      <View style={styles.head}>
+        <BookCover title={book.title} thumbnail={book.thumbnail} size={34} />
+        <View style={styles.headText}>
           <ThemedText type="h2" accessibilityRole="header">
-            Reading
+            What page are you on?
           </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {book.title}
+          <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
+            {book.title} · {book.author}
           </ThemedText>
         </View>
       </View>
 
-      <SegmentedControl
-        accessibilityLabel="Reading status"
-        options={readingOptions}
-        value={readingStatus}
-        onChange={setReading}
-      />
+      <Animated.View
+        accessibilityLiveRegion="polite"
+        style={[
+          styles.number,
+          { transform: [{ translateX: shake.interpolate({ inputRange: [-1, 1], outputRange: [-7, 7] }) }] }
+        ]}>
+        <ThemedText style={[styles.digits, !typed && styles.digitsPlaceholder, over && styles.digitsError]}>
+          {typed || String(savedPage)}
+        </ThemedText>
+        <Animated.View style={[styles.caret, { opacity: caret }]} />
+      </Animated.View>
 
-      {isReading ? (
-        <>
-          {memory ? (
-            <View style={styles.memory}>
-              <ThemedText type="caption" themeColor="textSecondary">
-                You left off on page {memory.page}
-              </ThemedText>
-              <ThemedText type="small">{memory.note}</ThemedText>
-            </View>
-          ) : null}
-          <TextField
-            label="Page you're on"
-            value={page}
-            // Digits only, stripped as you type. number-pad still offers a minus on some Android
-            // keyboards, and a negative page is not a thing — better to make it untypeable than
-            // to explain it afterwards.
-            onChangeText={(text) => setPage(text.replace(/[^0-9]/g, ''))}
-            onBlur={saveReading}
-            keyboardType="number-pad"
-            returnKeyType="done"
-            onSubmitEditing={saveReading}
-            hint={total ? `of ${total}` : 'Optional'}
-            // The field carries its own error — red border, message in place — rather than a
-            // separate line underneath it.
-            // Not "there is no page 900": the count came from a catalogue, and the copy in their
-            // hand may be a different edition. The number they typed is evidence, not an error.
-            error={pastEnd ? `Listed at ${total} pages. Does your copy run longer?` : null}
+      {total ? (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.of}>
+          of {total}
+        </ThemedText>
+      ) : null}
+
+      {total ? (
+        <View style={styles.track}>
+          <View
+            style={[styles.fill, { width: `${Math.min(100, percentOf(shown, total))}%` }, over && styles.fillHeld]}
           />
-          {pastEnd ? (
-            <Button title="My copy has a different length" variant="secondary" onPress={onEditBook} />
-          ) : null}
-          {total ? (
-            <View style={styles.progress}>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: fillWidth }]} />
-              </View>
-              <ThemedText type="small" themeColor="textSecondary">
-                {shownPage > 0 ? `${percent}% · ${pagesToGo} pages to go` : `${total} pages`}
+        </View>
+      ) : null}
+
+      <View style={styles.caption}>
+        {over ? (
+          <>
+            <ThemedText type="caption" themeColor="danger">
+              This copy has {total} pages.
+            </ThemedText>
+            {/* The way out of the error, rather than leaving someone stuck with a page count the
+                catalogue got wrong for the copy in their hand. */}
+            <Pressable accessibilityRole="button" onPress={onEditBook}>
+              <ThemedText type="caption" style={styles.fixLink}>
+                Different edition?
               </ThemedText>
-            </View>
-          ) : null}
-          <TextField
-            label="Note for next time"
-            value={note}
-            onChangeText={setNote}
-            onBlur={saveReading}
-            multiline
-            hint="What was happening, so you can pick it up cold"
-          />
-        </>
+            </Pressable>
+          </>
+        ) : atEnd ? (
+          <ThemedText type="caption" themeColor="textSecondary">
+            That&apos;s the last page.
+          </ThemedText>
+        ) : total ? (
+          <>
+            <ThemedText type="caption" themeColor="textSecondary">
+              {percentOf(shown, total)}% read
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textSecondary">
+              {total - shown} pages to go
+            </ThemedText>
+          </>
+        ) : (
+          <>
+            <ThemedText type="caption" themeColor="textSecondary">
+              No page count on this book
+            </ThemedText>
+            <Pressable accessibilityRole="button" onPress={onEditBook}>
+              <ThemedText type="caption" style={styles.fixLink}>
+                Add one
+              </ThemedText>
+            </Pressable>
+          </>
+        )}
+      </View>
+
+      {error ? (
+        <ThemedText type="caption" themeColor="danger" style={styles.error}>
+          {error}
+        </ThemedText>
       ) : null}
 
-      {readingStatus === 'reading' ? (
-        <Button title="I gave up on it" variant="secondary" onPress={() => setReading('abandoned')} />
-      ) : null}
-      {readingStatus === 'read' ? (
-        <Button title="Read it again" variant="secondary" onPress={() => setReading('rereading')} />
-      ) : null}
+      <View style={styles.keys}>
+        {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map((key, index) =>
+          key === '' ? (
+            <View key={`gap${index}`} style={styles.key} />
+          ) : (
+            <Pressable
+              key={key}
+              accessibilityRole="button"
+              accessibilityLabel={key === 'del' ? 'Delete' : key}
+              onPress={() => press(key)}
+              style={({ pressed }) => [styles.key, pressed && styles.keyPressed]}>
+              {key === 'del' ? (
+                <Icon name="backspace" color={Colors.text} size={28} />
+              ) : (
+                <ThemedText style={styles.keyText}>{key}</ThemedText>
+              )}
+            </Pressable>
+          )
+        )}
+      </View>
 
-      {error ? <FieldError message={error} /> : null}
-
-      {/* Shown for finished books too: how a book went is worth seeing after it is done. */}
-      <ReadingTrail entries={trail ?? []} />
-    </ScrollView>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSave }}
+        disabled={!canSave}
+        onPress={savePage}
+        style={[styles.go, !canSave ? styles.goOff : styles.goOn]}>
+        <ThemedText type="button" style={!canSave ? styles.goOffText : atEnd ? styles.goFinishText : styles.goOnText}>
+          {!typed || over ? 'Save' : atEnd ? 'I finished it' : `Save page ${value}`}
+        </ThemedText>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flexGrow: 0
+  pad: {
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.four
   },
-  content: {
-    gap: Spacing.two,
-    paddingBottom: Spacing.two
-  },
-  header: {
+  head: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two
   },
-  headline: {
-    flex: 1
+  headText: {
+    flex: 1,
+    minWidth: 0
   },
-  progress: {
-    gap: Spacing.one
+  number: {
+    height: 104,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.three
+  },
+  digits: {
+    fontFamily: Fonts.display,
+    fontSize: 84,
+    lineHeight: 92,
+    letterSpacing: -3,
+    color: Colors.text
+  },
+  digitsPlaceholder: {
+    color: Colors.disabledText
+  },
+  digitsError: {
+    color: Colors.danger
+  },
+  caret: {
+    width: 3,
+    height: 66,
+    borderRadius: 2,
+    backgroundColor: Colors.brand,
+    marginLeft: 5
+  },
+  of: {
+    textAlign: 'center'
   },
   track: {
     height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.brandTint,
     overflow: 'hidden',
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.brandTint
+    marginTop: Spacing.three
   },
   fill: {
     height: '100%',
-    borderRadius: Radius.pill,
+    borderRadius: 3,
     backgroundColor: Colors.brand
   },
-  memory: {
-    gap: 2,
-    padding: Spacing.two,
-    borderRadius: Radius.card,
+  fillHeld: {
+    backgroundColor: Colors.disabledText
+  },
+  caption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginTop: Spacing.two,
+    minHeight: 20
+  },
+  fixLink: {
+    color: Colors.brand,
+    fontFamily: Fonts.bodyBold
+  },
+  error: {
+    marginTop: Spacing.one
+  },
+  keys: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: Spacing.three
+  },
+  key: {
+    width: '33.33%',
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.input
+  },
+  keyPressed: {
     backgroundColor: Colors.brandTint
   },
-  trail: {
-    gap: Spacing.two,
-    paddingTop: Spacing.two,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border
+  keyText: {
+    fontFamily: Fonts.body,
+    fontSize: 27,
+    lineHeight: 34,
+    color: Colors.text
   },
-  trailRow: {
-    flexDirection: 'row',
-    gap: Spacing.two
-  },
-  // Fixed width so every row's text starts on the same line, and the connector can run down
-  // the middle of the dots rather than wandering with the content.
-  trailMarker: {
-    width: 10,
-    alignItems: 'center',
-    paddingTop: 5
-  },
-  trailDot: {
-    width: 7,
-    height: 7,
+  go: {
+    height: 56,
     borderRadius: Radius.pill,
-    backgroundColor: Colors.border
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.three
   },
-  trailDotLatest: {
-    backgroundColor: Colors.brand
+  goOn: {
+    backgroundColor: Colors.buttonPrimary
   },
-  trailLine: {
-    flex: 1,
-    width: 1,
-    marginTop: 2,
-    backgroundColor: Colors.border
+  goOnText: {
+    color: Colors.textOnDark
   },
-  trailText: {
-    flex: 1,
-    gap: 1,
-    paddingBottom: Spacing.two
+  goFinishText: {
+    color: Colors.accent
   },
-  trailNote: {
-    marginTop: 2,
-    fontStyle: 'italic'
+  goOff: {
+    backgroundColor: Colors.disabledSurface
+  },
+  goOffText: {
+    color: Colors.disabledText
+  },
+
+  done: {
+    alignItems: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.four
+  },
+  ring: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.one
+  },
+  doneTitle: {
+    marginTop: Spacing.three
+  },
+  doneSub: {
+    marginTop: Spacing.one,
+    textAlign: 'center'
+  },
+  question: {
+    marginTop: Spacing.four
+  },
+  stars: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: Spacing.one
+  },
+  star: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  hint: {
+    marginTop: Spacing.half
+  },
+  request: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    width: '100%',
+    backgroundColor: Colors.background,
+    borderRadius: Radius.input,
+    padding: Spacing.two,
+    marginTop: Spacing.four
+  },
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.brandTint,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  avatarText: {
+    color: Colors.brand,
+    fontFamily: Fonts.bodyBold
+  },
+  requestText: {
+    flex: 1
+  },
+  lend: {
+    color: Colors.brand
+  },
+  doneGo: {
+    width: '100%'
   }
 });

@@ -1,10 +1,8 @@
-import { useRef, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Schemas } from '@/api/client';
 import { BookCover } from '@/components/book-cover';
 import { Button } from '@/components/button';
-import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { formatDate } from '@/lib/loans';
@@ -19,108 +17,22 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const STALL_DAYS = 14;
 // Close enough to the end that telling someone the book is nearly free is worth doing.
 const NEARLY_DONE_PAGES = 30;
-// Drag friction. One page per four pixels: a full thumb-length travel moves about forty pages, so
-// you can settle on a number rather than fling past it. Big jumps belong in the sheet, where you
-// can type.
-const PIXELS_PER_PAGE = 4;
-// Below this a drag is a tap, and the +/- buttons should get it.
-const DRAG_THRESHOLD = 3;
 
 const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS);
-
-// A crown, like the one you set a watch with. Drag it up or down and the page climbs or falls
-// under your thumb; tap the ends to step one page.
-//
-// It replaced a scrubber along the book's length, which was the wrong control twice over. It
-// mapped the absolute touch position to a page, so pressing anywhere *jumped* there — grabbing the
-// bar at page 18 and landing on 53 before moving a millimetre. And a 700-page book across 300
-// pixels is two pages per pixel, so no amount of care could land on a particular page.
-//
-// This is relative: where you grab means nothing, only how far you travel. That is the difference
-// between a slider and a crown, and it is why a watch uses one.
-function Crown({ page, total, onCommit }: { page: number; total: number; onCommit: (page: number) => void }) {
-  const [draft, setDraft] = useState<number | null>(null);
-
-  const clamp = (value: number) => Math.max(0, Math.min(total, Math.round(value)));
-
-  // PanResponder builds its callbacks once, so everything they read has to come from a ref.
-  // Capturing state directly leaves the control using the first render's values for ever.
-  const pageRef = useRef(page);
-  pageRef.current = page;
-  const startRef = useRef(page);
-  const draftRef = useRef<number | null>(null);
-
-  const setDraftValue = (value: number | null) => {
-    draftRef.current = value;
-    setDraft(value);
-  };
-
-  const responder = useRef(
-    PanResponder.create({
-      // Not on touch down: the + and - underneath need taps. Only a real vertical movement is a
-      // drag, which is what lets one control be both.
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dy) > DRAG_THRESHOLD,
-      onPanResponderGrant: () => {
-        startRef.current = pageRef.current;
-        setDraftValue(pageRef.current);
-      },
-      onPanResponderMove: (_event, gesture) => {
-        // Up is forwards. Screen y grows downwards, hence the negation.
-        setDraftValue(clamp(startRef.current - gesture.dy / PIXELS_PER_PAGE));
-      },
-      onPanResponderRelease: () => {
-        const next = draftRef.current;
-        setDraftValue(null);
-        if (next !== null && next !== pageRef.current) onCommit(next);
-      },
-      onPanResponderTerminate: () => setDraftValue(null)
-    })
-  ).current;
-
-  const shown = draft ?? page;
-  const step = (by: number) => {
-    const next = clamp(pageRef.current + by);
-    if (next !== pageRef.current) onCommit(next);
-  };
-
-  return (
-    <View
-      accessibilityRole="adjustable"
-      accessibilityLabel="Page you are on"
-      accessibilityValue={{ min: 0, max: total, now: shown }}
-      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-      onAccessibilityAction={(event) => step(event.nativeEvent.actionName === 'increment' ? 1 : -1)}
-      style={styles.crown}
-      {...responder.panHandlers}>
-      <Pressable accessibilityLabel="A page forward" hitSlop={4} onPress={() => step(1)} style={styles.crownEnd}>
-        <Icon name="plus" color={Colors.textSecondary} size={16} strokeWidth={2.5} />
-      </Pressable>
-
-      <View style={[styles.crownFace, draft !== null && styles.crownFaceActive]}>
-        <ThemedText type="smallBold" style={draft !== null ? styles.crownNumberActive : undefined}>
-          {shown}
-        </ThemedText>
-      </View>
-
-      <Pressable accessibilityLabel="A page back" hitSlop={4} onPress={() => step(-1)} style={styles.crownEnd}>
-        <Icon name="minus" color={Colors.textSecondary} size={16} strokeWidth={2.5} />
-      </Pressable>
-    </View>
-  );
-}
 
 type ReadingRowProps = {
   row: ReadingBook;
   // The oldest pending request for this book, if anyone has asked for it.
   request: BookRequest | null;
   onPress: () => void;
-  onSetPage: (page: number) => void;
+  // Opens the keypad. The row no longer edits the page itself — see the note on the removed
+  // stepper below.
+  onUpdatePage: () => void;
   // Say yes to whoever is waiting, then go and lend it to them.
   onHandOver: (request: BookRequest) => void;
 };
 
-export function ReadingRow({ row, request, onPress, onSetPage, onHandOver }: ReadingRowProps) {
+export function ReadingRow({ row, request, onPress, onUpdatePage, onHandOver }: ReadingRowProps) {
   const { book, lastRead, waiting } = row;
   const total = book.pageCount ?? null;
   const page = book.currentPage ?? 0;
@@ -181,7 +93,19 @@ export function ReadingRow({ row, request, onPress, onSetPage, onHandOver }: Rea
           )}
         </View>
 
-        {total ? <Crown page={page} total={total} onCommit={onSetPage} /> : null}
+        {/* This was a +/- stepper you could also drag. Every tap of it saved, so one sitting with
+            a book wrote a dozen updates — a dozen rows in the reading history and, until the
+            server stopped logging them, a dozen "edited this book" entries burying the activity
+            page. A page is now typed once, on a keypad, and saved when you say so. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={total ? `Page ${page} of ${total}. Update your page.` : 'Update your page'}
+          onPress={onUpdatePage}
+          style={({ pressed }) => [styles.update, pressed && styles.pressed]}>
+          <ThemedText type="smallBold" themeColor="brand">
+            {page > 0 ? page : 'Set page'}
+          </ThemedText>
+        </Pressable>
       </View>
 
       {/* At most one nudge, in the order of what earns the interruption: someone waiting for a book
@@ -264,36 +188,17 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     backgroundColor: Colors.brand
   },
-  // A column you can put a thumb on: the ends step a page, the middle is the grip.
-  crown: {
-    width: 46,
+  // One tap target, not a control: it says where you are and opens the keypad.
+  update: {
+    minWidth: 56,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.two,
     borderRadius: Radius.pill,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: Colors.background,
-    paddingVertical: Spacing.one
-  },
-  crownEnd: {
-    height: 32,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  crownFace: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.one,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: Colors.border
-  },
-  crownFaceActive: {
-    backgroundColor: Colors.brandTint
-  },
-  crownNumberActive: {
-    color: Colors.brand
+    backgroundColor: Colors.background
   },
   handOver: {
     gap: Spacing.two

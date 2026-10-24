@@ -8,6 +8,7 @@ import Svg, { G, Line, Path } from 'react-native-svg';
 // imports below stay on the root because `import type` is erased and reaches no runtime module.
 import type { Icon as PhosphorIcon, IconWeight } from 'phosphor-react-native';
 import { ArrowLeftIcon } from 'phosphor-react-native/src/icons/ArrowLeft';
+import { BackspaceIcon } from 'phosphor-react-native/src/icons/Backspace';
 import { BasketIcon } from 'phosphor-react-native/src/icons/Basket';
 import { BellIcon } from 'phosphor-react-native/src/icons/Bell';
 import { BookOpenIcon } from 'phosphor-react-native/src/icons/BookOpen';
@@ -81,6 +82,9 @@ const ICONS = {
   offline: WifiSlashIcon,
   error: WarningCircleIcon,
   tag: TagIcon,
+  // The keypad's delete key. Phosphor's own backspace drawing, so it reads as the system one
+  // rather than as a close button.
+  backspace: BackspaceIcon,
   check: CheckIcon,
   star: StarIcon,
   users: UsersIcon,

@@ -14,7 +14,8 @@ type ReadingListProps = {
   // list stays a list and the screen keeps owning the requests it fetched.
   requestFor: (bookId: string) => BookRequest | null;
   onPressBook: (book: ReadingBook['book']) => void;
-  onSetPage: (book: ReadingBook['book'], page: number) => void;
+  // Opens the keypad for this book.
+  onUpdatePage: (book: ReadingBook['book']) => void;
   onHandOver: (request: BookRequest) => void;
   refreshing: boolean;
   onRefresh: () => void;
@@ -30,7 +31,7 @@ export function ReadingList({
   rows,
   requestFor,
   onPressBook,
-  onSetPage,
+  onUpdatePage,
   onHandOver,
   refreshing,
   onRefresh,
@@ -51,7 +52,7 @@ export function ReadingList({
           row={row}
           request={requestFor(row.book.id)}
           onPress={() => onPressBook(row.book)}
-          onSetPage={(page) => onSetPage(row.book, page)}
+          onUpdatePage={() => onUpdatePage(row.book)}
           onHandOver={onHandOver}
         />
       )}

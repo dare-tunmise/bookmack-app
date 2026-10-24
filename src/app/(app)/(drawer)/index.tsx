@@ -14,6 +14,7 @@ import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
 import { usePendingRequests } from '@/components/pending-requests';
 import { ReadingList } from '@/components/reading-list';
+import { ReadingSheet } from '@/components/reading-sheet';
 import { useSnackbar } from '@/components/snackbar';
 import { Tabs } from '@/components/tabs';
 import { ThemedText } from '@/components/themed-text';
@@ -218,26 +219,9 @@ export default function LibraryScreen() {
     if (nextCursor && !loading && !error) load('more', nextCursor);
   };
 
-  // Dragging the scrubber has already moved the bar under the reader's thumb, so the row is
-  // updated straight away and the reload only confirms it. Waiting for the round trip would make
-  // the control feel broken on a slow connection, which is the opposite of the point.
-  const setPage = async (book: Book, page: number) => {
-    setReadingRows((rows) =>
-      rows.map((row) => (row.book.id === book.id ? { ...row, book: { ...row.book, currentPage: page } } : row))
-    );
-    try {
-      const { data, error: apiError } = await api.PATCH('/books/{id}', {
-        params: { path: { id: book.id } },
-        body: { currentPage: page }
-      });
-      if (!data) throw toApiError(apiError);
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-    // Either way: on success this picks up the new entry and re-sorts, and on failure it puts the
-    // real page back rather than leaving the row showing something that was never saved.
-    load('background');
-  };
+  // The page is typed on the keypad and saved once. The sheet owns the save and the undo; this
+  // screen only needs to know which book to open it for, and to reload when it changes.
+  const [pageBook, setPageBook] = useState<Book | null>(null);
 
   // The oldest pending request for a book, which is whoever has been waiting longest. /requests
   // comes back newest first, so the last match is the one to answer.
@@ -402,7 +386,7 @@ export default function LibraryScreen() {
           }
           requestFor={requestFor}
           onPressBook={setSelectedBook}
-          onSetPage={setPage}
+          onUpdatePage={setPageBook}
           onHandOver={handOver}
           refreshing={loading === 'refresh'}
           onRefresh={() => load('refresh')}
@@ -451,6 +435,23 @@ export default function LibraryScreen() {
         onFilterByTheme={filterByTheme}
         countForTheme={(theme) => themeCounts.get(theme.toLowerCase()) ?? 0}
       />
+
+      {/* One tap from a Reading card to the keypad, without going through the book first. */}
+      {pageBook ? (
+        <ReadingSheet
+          visible
+          book={pageBook}
+          onClose={() => setPageBook(null)}
+          onChanged={(book) => {
+            setPageBook(book);
+            load('background');
+          }}
+          onEditBook={() => {
+            setPageBook(null);
+            router.push({ pathname: '/edit-book', params: { id: pageBook.id } });
+          }}
+        />
+      ) : null}
     </ThemedView>
   );
 }
