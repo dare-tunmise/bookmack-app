@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "198314515386",
+    "project_id": "bookmack-5e84f",
+    "storage_bucket": "bookmack-5e84f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:198314515386:android:026e736b81ffc8fde85b83",
+        "android_client_info": {
+          "package_name": "com.bookmack.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCV7BSx0UHnRmfOZ9n0n5-Lt85fnjf4tw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
