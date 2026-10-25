@@ -279,6 +279,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/push-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Register this device for notifications, or clear it */
+        put: operations["registerPushToken"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/sessions/{id}": {
         parameters: {
             query?: never;
@@ -1141,6 +1158,13 @@ export interface components {
                 dueDateAlerts: boolean;
                 weeklyDigest: boolean;
                 newFeatures: boolean;
+            };
+            /** @description Notifications on your phone. readingNudge is the only one off by default. */
+            push: {
+                requests: boolean;
+                shelfViews: boolean;
+                overdue: boolean;
+                readingNudge: boolean;
             };
             appearanceSettings: {
                 /** @enum {string} */
@@ -2088,6 +2112,12 @@ export interface operations {
                         /** @enum {string} */
                         fontSize?: "small" | "medium" | "large";
                     };
+                    push?: {
+                        requests?: boolean;
+                        shelfViews?: boolean;
+                        overdue?: boolean;
+                        readingNudge?: boolean;
+                    };
                 };
             };
         };
@@ -2307,6 +2337,37 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    registerPushToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Expo push token, or null to stop notifications on this device */
+                    token: string | null;
+                    /** @description IANA name from the device, e.g. Africa/Lagos — the evening reminder needs to know whose evening */
+                    timezone?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description This device is registered */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             default: components["responses"]["Error"];

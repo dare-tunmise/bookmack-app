@@ -26,6 +26,17 @@ const NOTIFICATIONS: { key: NotificationKey; label: string }[] = [
   { key: 'newFeatures', label: 'New features' }
 ];
 
+type PushKey = keyof Schemas['Profile']['push'];
+
+// What arrives on the phone, as opposed to in an inbox. Each one says what actually happened, so
+// each is described by the event rather than by a feature name.
+const PUSH: { key: PushKey; label: string; detail: string }[] = [
+  { key: 'requests', label: 'Borrow requests', detail: 'When someone asks for one of your books' },
+  { key: 'shelfViews', label: 'Shelf visits', detail: 'When someone opens a shelf you shared' },
+  { key: 'overdue', label: 'Overdue books', detail: 'The morning after a loan falls due' },
+  { key: 'readingNudge', label: 'Evening reading reminder', detail: 'If a book has sat untouched for a few days' }
+];
+
 export default function AccountScreen() {
   const { user, updateUser, signOut } = useSession();
   const snackbar = useSnackbar();
@@ -55,6 +66,19 @@ export default function AccountScreen() {
     updateUser({ ...user, notificationSettings: { ...user.notificationSettings, [key]: enabled } });
     try {
       const { data, error } = await api.PATCH('/me', { body: { notificationSettings: { [key]: enabled } } });
+      if (!data) throw toApiError(error);
+      updateUser(data.data);
+    } catch (err) {
+      updateUser(previous);
+      snackbar.show(errorMessage(err));
+    }
+  };
+
+  const setPush = async (key: PushKey, enabled: boolean) => {
+    const previous = user;
+    updateUser({ ...user, push: { ...user.push, [key]: enabled } });
+    try {
+      const { data, error } = await api.PATCH('/me', { body: { push: { [key]: enabled } } });
       if (!data) throw toApiError(error);
       updateUser(data.data);
     } catch (err) {
@@ -104,6 +128,19 @@ export default function AccountScreen() {
               label={notification.label}
               value={user.notificationSettings[notification.key]}
               onValueChange={(enabled) => setNotification(notification.key, enabled)}
+            />
+          ))}
+        </SettingsSection>
+
+        <SettingsSection title="On your phone">
+          {PUSH.map((item) => (
+            <SettingsSwitchRow
+              key={item.key}
+              icon="bell"
+              label={item.label}
+              description={item.detail}
+              value={user.push[item.key]}
+              onValueChange={(enabled) => setPush(item.key, enabled)}
             />
           ))}
         </SettingsSection>

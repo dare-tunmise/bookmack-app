@@ -3,6 +3,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useState, type Pro
 import { Platform } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
+import { registerForPush, unregisterPush } from '@/notifications/push';
 import { toApiError } from '@/api/errors';
 import { refreshTokens, tokens } from '@/auth/tokens';
 
@@ -39,6 +40,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const startSession = useCallback(async (session: Schemas['AuthSession']) => {
     await tokens.save(session);
     setState({ status: 'signedIn', user: session.user });
+    // After the tokens are saved, so the registering call can authenticate, and not awaited: the
+    // permission prompt must not hold up getting into the app.
+    registerForPush();
   }, []);
 
   // Restore the previous session on launch.
@@ -51,6 +55,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
           const { data, error } = await api.GET('/me');
           if (data) {
             setState({ status: 'signedIn', user: data.data });
+            // Re-registered on every launch rather than only at sign-in: Expo tokens rotate, and
+            // a stale one means a phone that quietly stopped receiving anything.
+            registerForPush();
             return;
           }
           throw toApiError(error);
@@ -89,6 +96,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const signOut = useCallback(async () => {
     try {
+      // Before the session ends, while this request can still authenticate. The server clears the
+      // token with the session anyway; doing it here means the phone goes quiet immediately.
+      await unregisterPush();
       await api.POST('/auth/logout');
     } catch {
       // Ending the session on the server is best-effort; the device forgets it either way.

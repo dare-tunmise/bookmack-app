@@ -71,11 +71,14 @@ export function SettingsRow({ icon, label, value, onPress, accessory, tone = 'de
 type SettingsSwitchRowProps = {
   icon: IconName;
   label: string;
+  // What the switch actually does, for settings whose name does not say it. Optional, because
+  // most of them do.
+  description?: string;
   value: boolean;
   onValueChange: (value: boolean) => void;
 };
 
-export function SettingsSwitchRow({ icon, label, value, onValueChange }: SettingsSwitchRowProps) {
+export function SettingsSwitchRow({ icon, label, description, value, onValueChange }: SettingsSwitchRowProps) {
   return (
     <View style={styles.row}>
       <View style={styles.rowIcon}>
@@ -83,6 +86,7 @@ export function SettingsSwitchRow({ icon, label, value, onValueChange }: Setting
       </View>
       <View style={styles.rowText}>
         <ThemedText style={styles.label}>{label}</ThemedText>
+        {description ? <ThemedText style={styles.value}>{description}</ThemedText> : null}
       </View>
       <Switch
         accessibilityLabel={label}

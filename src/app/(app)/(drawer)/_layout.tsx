@@ -7,6 +7,7 @@ import { AppBar } from '@/components/app-bar';
 import { AppDrawerContent } from '@/components/app-drawer-content';
 import { BOTTOM_NAV_BODY, BottomNav } from '@/components/bottom-nav';
 import { PendingRequestsProvider } from '@/components/pending-requests';
+import { useNotificationTaps } from '@/notifications/use-notification-taps';
 import { Colors } from '@/constants/theme';
 
 // Main sections, reached from the bottom bar or the side menu (☰ or a swipe from the left edge).
@@ -14,6 +15,9 @@ import { Colors } from '@/constants/theme';
 // carries everything.
 export default function DrawerLayout() {
   const insets = useSafeAreaInsets();
+  // Here rather than at the root: a tap that routes to /requests while somebody is on the sign-in
+  // screen would bounce them straight back out again.
+  useNotificationTaps();
 
   // Wraps the whole drawer so both consumers share one count: the menu itself, which is rendered
   // through drawerContent, and the requests screen below, which answers requests and says so.
