@@ -1,90 +1,85 @@
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Rect } from 'react-native-svg';
 
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
-import { useAppActions } from '@/components/app-actions';
-import { Button } from '@/components/button';
-import { GenreSheet, type GenreSelection } from '@/components/genre-sheet';
+import { AppBar } from '@/components/app-bar';
+import { BookCover } from '@/components/book-cover';
+import { Icon } from '@/components/icon';
 import { SegmentedControl } from '@/components/segmented-control';
 import { Skeleton } from '@/components/skeleton';
 import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Chart, Colors, Fonts, MaxContentWidth, Radius } from '@/constants/theme';
+import { YearShelf } from '@/components/year-shelf';
+import { Colors, Fonts, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 
 type Overview = Schemas['StatsOverview'];
-type MonthlyCount = Schemas['MonthlyCount'];
-type Year = Schemas['YearInBooks'];
-type Facets = Schemas['BookFacets'];
-type Genres = Schemas['GenreBreakdown'];
+type YearShelfData = Schemas['YearShelf'];
 type ActivityDay = Schemas['ActivityDay'];
-type Loaded = {
-  overview: Overview;
-  months: MonthlyCount[];
-  year: Year;
-  facets: Facets;
-  genres: Genres;
-  activity: ActivityDay[];
-};
 
-const MONTHS = 12;
-// How many theme bars the card shows before "See all".
-const THEME_ROWS = 6;
-// The heatmap's span, and the identity slots the donut has before the tail folds into Other.
-const WEEKS = 18;
-const GENRE_SLOTS = 5;
+// Stats that look like what they are measuring.
+//
+// The year shelf is the only big visual, and it could not belong to any other app because the
+// marks are the books. Everything under it is written in sentences — "You've finished 24 books"
+// reads like a person talking, "Books: 24" reads like a database — and the sections are divided
+// by space and hairlines rather than boxed into cards, which is the thing that makes a screen
+// feel like a dashboard instead of a page.
+//
+// What this replaced: a grid of number tiles, a donut, a heatmap and a loans-per-month bar chart,
+// each inside its own card. Every one of them was a chart you have seen in ten other apps.
 
-// "2026-09" → a date mid-month, so a local time zone cannot shift it into another month.
-const monthDate = (month: string) => {
-  const [year, index] = month.split('-').map(Number);
-  return new Date(year, index - 1, 15);
-};
+const WEEKS = 53;
+const RIBBON_HEIGHT = 64;
+const BAR_SLOT = 10;
+const MONTH_LETTERS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+// Genre is a category, so it gets colours that stay apart from one another. Deliberately not the
+// jacket palette: those are meant to look like books, and these are meant to look like a key.
+const GENRE_COLORS = ['#227E00', '#1A5EC2', '#BB8800', '#812B8F', '#00919F', '#8A9784'];
 
 type Range = 'year' | 'all';
 
-// `as const` so the keys infer as Range rather than widening to string, which is what lets
-// onChange={setRange} line up.
 const RANGES = [
-  { key: 'year', label: 'This year' },
+  { key: 'year', label: String(new Date().getFullYear()) },
   { key: 'all', label: 'All time' }
 ] as const satisfies readonly { key: Range; label: string }[];
+
+// `at` is when this was fetched. Everything time-based reads from it rather than calling the
+// clock while rendering, so a re-render cannot quietly change the numbers under the reader.
+type Loaded = { overview: Overview; shelf: YearShelfData; activity: ActivityDay[]; at: number };
+
+const plural = (count: number, one: string, many = `${one}s`) => (count === 1 ? one : many);
 
 export default function StatsScreen() {
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [range, setRange] = useState<Range>('year');
-  // The slice that was tapped. Its colour travels into the sheet, so the two screens read as the
-  // same thing rather than two views that happen to share a word.
-  const [openGenre, setOpenGenre] = useState<GenreSelection | null>(null);
-  const { openAdd } = useAppActions();
+  const [shelfWidth, setShelfWidth] = useState(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'refresh') setRefreshing(true);
     try {
-      const [overview, months, year, facets, genres, activity] = await Promise.all([
-        api.GET('/stats'),
-        api.GET('/stats/loans-by-month', { params: { query: { months: MONTHS } } }),
-        api.GET('/stats/year', { params: { query: {} } }),
-        api.GET('/books/facets'),
-        api.GET('/stats/genres'),
+      const [overview, shelf, activity] = await Promise.all([
+        api.GET('/stats', {}),
+        api.GET('/stats/year/shelf', { params: { query: {} } }),
         api.GET('/stats/activity', { params: { query: { weeks: WEEKS } } })
       ]);
       if (!overview.data) throw toApiError(overview.error);
-      if (!months.data) throw toApiError(months.error);
-      if (!year.data) throw toApiError(year.error);
-      if (!facets.data) throw toApiError(facets.error);
-      if (!genres.data) throw toApiError(genres.error);
-      if (!activity.data) throw toApiError(activity.error);
+      if (!shelf.data) throw toApiError(shelf.error);
       setData({
         overview: overview.data.data,
-        months: months.data.data,
-        year: year.data.data,
-        facets: facets.data.data,
-        genres: genres.data.data,
-        activity: activity.data.data
+        shelf: shelf.data.data,
+        // The ribbon is the one part that can be missing without the screen being wrong.
+        activity: activity.data?.data ?? [],
+        at: Date.now()
       });
       setError(null);
     } catch (err) {
@@ -100,642 +95,393 @@ export default function StatsScreen() {
     }, [load])
   );
 
+  const weeks = useMemo(() => buildWeeks(data?.activity ?? [], data?.shelf.year, data?.at), [data]);
+  const monthPages = useMemo(() => {
+    const totals = Array<number>(12).fill(0);
+    weeks.forEach((week) => {
+      totals[week.month] += week.pages;
+    });
+    return totals;
+  }, [weeks]);
+
   if (!data) {
     return (
-      <ThemedView style={[styles.screen, styles.loading]}>
-        {error ? (
-          <>
-            <FieldError message={error} />
-            <Button title="Try again" variant="secondary" onPress={load} />
-          </>
-        ) : (
-          <>
-            <Skeleton width="100%" height={132} radius={Radius.card} />
-            <Skeleton width="100%" height={156} radius={Radius.card} />
-            <Skeleton width="100%" height={188} radius={Radius.card} />
-          </>
-        )}
-      </ThemedView>
-    );
-  }
-
-  const { overview, months, year, facets, genres, activity } = data;
-
-  // No zeroed charts: an empty donut reads as broken rather than as new, so a shelf with almost
-  // nothing on it gets one illustration and one way forward.
-  if (overview.books < 3 && overview.booksRead === 0) {
-    return (
       <ThemedView style={styles.screen}>
-        <EmptyStats onAdd={openAdd} />
+        <AppBar title="Stats" />
+        <View style={styles.loading}>
+          {error ? <FieldError message={error} /> : <Skeleton width="100%" height={320} radius={Radius.card} />}
+        </View>
       </ThemedView>
     );
   }
 
+  const { overview, shelf } = data;
   const thisYear = range === 'year';
-  const finished = thisYear ? year.booksFinished : overview.booksRead;
-  const pages = thisYear ? year.pagesRead : overview.pagesRead;
-  const unread = Math.max(0, overview.books - overview.booksRead - overview.booksReading);
-  const themes = facets.themes.slice(0, THEME_ROWS);
+  const books = shelf.books;
+
+  const finished = thisYear ? overview.booksReadThisYear : overview.booksRead;
+  const pages = thisYear ? books.reduce((sum, book) => sum + (book.pageCount ?? 0), 0) : overview.pagesRead;
+  const daysIn = Math.max(1, Math.round((data.at - Date.UTC(shelf.year, 0, 1)) / 86400000));
+  const perDay = thisYear && pages ? Math.round(pages / daysIn) : null;
+
+  const bestMonth = monthPages.indexOf(Math.max(...monthPages));
+  const hasMonths = monthPages[bestMonth] > 0;
+  const peak = Math.max(...weeks.map((week) => week.pages), 1);
+
+  const highlights = buildHighlights(books);
+  const genres = buildGenres(books);
 
   return (
     <ThemedView style={styles.screen}>
-      {/* One pill with a fill that slides between the two, rather than two separate chips: this is a
-          choice between ranges, and the app already has a control that says so. */}
-      <View style={styles.range}>
-        <SegmentedControl
-          options={RANGES}
-          value={range}
-          onChange={setRange}
-          accessibilityLabel="Which period to show"
-        />
-      </View>
+      <AppBar>
+        <View style={styles.barRow}>
+          <ThemedText type="subtitle" accessibilityRole="header" style={styles.barTitle}>
+            Stats
+          </ThemedText>
+          <SegmentedControl accessibilityLabel="Range" options={RANGES} value={range} onChange={setRange} />
+        </View>
+      </AppBar>
 
       <ScrollView
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              load();
-            }}
-            colors={[Colors.brand]}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} colors={[Colors.brand]} />
         }>
-        {/* Leads with the one number the range is about. */}
-        <View style={styles.hero}>
-          <ThemedText style={styles.heroFigure}>{finished.toLocaleString()}</ThemedText>
-          <ThemedText style={styles.heroLabel}>
-            {`${finished === 1 ? 'book' : 'books'} finished ${thisYear ? 'this year' : 'all time'}`}
+        {error ? <FieldError message={error} /> : null}
+
+        <View
+          style={styles.hero}
+          onLayout={(event) => setShelfWidth(event.nativeEvent.layout.width - Spacing.three * 2)}>
+          <ThemedText type="caption" style={styles.eyebrow}>
+            {thisYear ? `${shelf.year} so far` : 'Since you started'}
           </ThemedText>
-          <ThemedText style={styles.heroSub}>
-            {`${pages.toLocaleString()} pages${thisYear ? ` · ${year.booksAdded.toLocaleString()} added this year` : ''}`}
-          </ThemedText>
-        </View>
 
-        {/* Overdue is the only tile that changes colour, and it says the word as well as wearing
-            the tint — the colour is never the only signal. */}
-        <View style={styles.tiles}>
-          <Tile value={overview.books} label="Books owned" />
-          <Tile value={overview.booksReading} label="Reading now" />
-          <Tile value={overview.activeLoans} label="Lent out" />
-          <Tile value={overview.overdueLoans} label="Overdue" danger={overview.overdueLoans > 0} />
-        </View>
-
-        {/* A 4-step sequential ramp of one hue: darker means more pages that day. */}
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <ThemedText style={styles.cardTitle}>Reading activity</ThemedText>
-            <ThemedText style={styles.cardNote}>{`Last ${WEEKS} weeks`}</ThemedText>
-          </View>
-          <ActivityHeatmap days={activity} />
-        </View>
-
-        {/* Ordinal, not categorical: unread → reading → read has an order, so it takes one hue in
-            three steps and the order is visible in the colour. */}
-        {overview.books > 0 ? (
-          <View style={styles.card}>
-            <ThemedText style={styles.cardTitle}>Where your books stand</ThemedText>
-            <StateBar read={overview.booksRead} reading={overview.booksReading} unread={unread} />
-          </View>
-        ) : null}
-
-        {/* The one place identity colour is spent. Every slice is also named and numbered in the
-            legend, so colour is never the only channel. */}
-        {genres.genres.length > 0 ? (
-          <View style={styles.card}>
-            <View style={styles.cardHead}>
-              <ThemedText style={styles.cardTitle}>Genre</ThemedText>
-            </View>
-            <GenreDonut breakdown={genres} onSelect={setOpenGenre} />
-          </View>
-        ) : null}
-
-        {themes.length > 0 ? (
-          <View style={styles.card}>
-            <View style={styles.cardHead}>
-              <ThemedText style={styles.cardTitle}>Themes</ThemedText>
-            </View>
-            <ThemedText style={styles.cardNote}>
-              {`A book usually carries several, so these don't add up to ${overview.books.toLocaleString()}.`}
+          <ThemedText style={styles.heroHeadline}>
+            You&apos;ve finished{' '}
+            <ThemedText style={styles.heroCount}>
+              {finished} {plural(finished, 'book')}.
             </ThemedText>
-            <View style={styles.themeRows}>
-              {themes.map((theme) => (
-                <ThemeBar
-                  key={theme.name}
-                  label={theme.name}
-                  count={theme.count}
-                  max={themes[0].count}
+          </ThemedText>
+
+          <ThemedText type="small" style={styles.heroSub}>
+            <ThemedText type="small" style={styles.heroSubStrong}>
+              {pages.toLocaleString()} pages
+            </ThemedText>
+            {perDay ? `, about ${perDay.toLocaleString()} a day.` : '.'}
+          </ThemedText>
+
+          {thisYear && books.length > 0 ? (
+            <>
+              {shelfWidth > 0 ? (
+                <View style={styles.shelfWrap}>
+                  <YearShelf books={books} width={shelfWidth} height={92} labelColor="#9DB48C" />
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/poster')}
+                style={({ pressed }) => [styles.make, pressed && styles.pressed]}>
+                <Icon name="stats" color="#163300" size={19} />
+                <ThemedText type="button" style={styles.makeText}>
+                  Make a poster of your year
+                </ThemedText>
+              </Pressable>
+              <ThemedText type="caption" style={styles.heroNote}>
+                Each spine is a book, as thick as its page count.
+              </ThemedText>
+            </>
+          ) : thisYear ? (
+            <ThemedText type="small" style={styles.heroNote}>
+              Finish a book and your year starts taking shape here.
+            </ThemedText>
+          ) : (
+            <ThemedText type="caption" style={styles.heroNote}>
+              The shelf is drawn one year at a time. Switch to {shelf.year} to see it.
+            </ThemedText>
+          )}
+        </View>
+
+        {thisYear && highlights.length ? (
+          <Section eyebrow="Highlights">
+            <View style={styles.highlights}>
+              {highlights.map((item) => (
+                <View key={item.key} style={styles.highlight}>
+                  <BookCover title={item.book.title} thumbnail={item.book.thumbnail} size={30} />
+                  <View style={styles.highlightText}>
+                    <ThemedText type="caption" style={styles.kicker}>
+                      {item.key}
+                    </ThemedText>
+                    <ThemedText type="smallBold" numberOfLines={2}>
+                      {item.book.title}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.highlightValue}>
+                    <ThemedText style={styles.valueNumber}>{item.value}</ThemedText>
+                    <ThemedText type="caption" themeColor="textSecondary">
+                      {item.unit}
+                    </ThemedText>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Section>
+        ) : null}
+
+        {hasMonths ? (
+          <Section eyebrow="When you read">
+            <Sentence>
+              Your best month was <Em>{MONTH_NAMES[bestMonth]}</Em>, with {monthPages[bestMonth].toLocaleString()}{' '}
+              pages.
+            </Sentence>
+            <View style={styles.ribbon}>
+              <Svg width="100%" height={RIBBON_HEIGHT} viewBox={`0 0 ${weeks.length * BAR_SLOT} ${RIBBON_HEIGHT}`}>
+                {weeks.map((week, index) => {
+                  const height = week.pages ? Math.max(2, (week.pages / peak) * (RIBBON_HEIGHT - 4)) : 0;
+                  return (
+                    <Rect
+                      key={index}
+                      x={index * BAR_SLOT + 1}
+                      y={RIBBON_HEIGHT - height}
+                      width={BAR_SLOT - 2.5}
+                      height={height}
+                      rx={1.5}
+                      // One month is coloured because it is the story. Colouring all twelve would
+                      // say nothing at all.
+                      fill={week.month === bestMonth ? Colors.brand : '#C9D6C0'}
+                    />
+                  );
+                })}
+              </Svg>
+              <View style={styles.months}>
+                {MONTH_LETTERS.map((letter, index) => (
+                  <ThemedText key={index} type="caption" themeColor="textSecondary" style={styles.month}>
+                    {letter}
+                  </ThemedText>
+                ))}
+              </View>
+            </View>
+          </Section>
+        ) : null}
+
+        {thisYear && genres.length ? (
+          <Section eyebrow="What you read">
+            <Sentence>
+              Mostly <Em>{genres[0].name.toLowerCase()}</Em>
+              {genres[1]
+                ? `, with ${genres[1].count} ${plural(genres[1].count, 'book')} of ${genres[1].name.toLowerCase()}.`
+                : '.'}
+            </Sentence>
+
+            <View style={styles.genreBar}>
+              {genres.map((genre, index) => (
+                <View
+                  key={genre.name}
+                  style={{ flex: genre.count, backgroundColor: GENRE_COLORS[index % GENRE_COLORS.length] }}
                 />
               ))}
             </View>
-          </View>
-        ) : null}
 
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <ThemedText style={styles.cardTitle}>Loans by month</ThemedText>
-          </View>
-          <LoansChart months={months} />
-          <ThemedText style={styles.cardNote}>This month is still in progress, shown a step lighter.</ThemedText>
-        </View>
+            <View style={styles.genreLegend}>
+              {genres.map((genre, index) => (
+                <View key={genre.name} style={styles.genreItem}>
+                  <View style={[styles.dot, { backgroundColor: GENRE_COLORS[index % GENRE_COLORS.length] }]} />
+                  <ThemedText type="small" style={styles.genreName} numberOfLines={1}>
+                    {genre.name}
+                  </ThemedText>
+                  <ThemedText type="small" style={styles.genreCount}>
+                    {genre.count}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
 
-        {overview.onTimeReturnRate !== null ? (
-          <View style={styles.card}>
-            <View style={styles.cardHead}>
-              <ThemedText style={styles.cardTitle}>Returned on time</ThemedText>
-              <ThemedText style={styles.cardFigure}>{`${Math.round(overview.onTimeReturnRate * 100)}%`}</ThemedText>
-            </View>
-            {/* A meter, not a chart: one ratio against a limit is a number. */}
-            <View style={styles.meterTrack}>
-              <View style={[styles.meterFill, { width: `${Math.round(overview.onTimeReturnRate * 100)}%` }]} />
-            </View>
-            {overview.averageLoanDays !== null ? (
-              <ThemedText style={styles.cardNote}>
-                {`Books come back in ${overview.averageLoanDays} days on average.`}
-              </ThemedText>
+            {shelf.themes.length ? (
+              <>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.themesLead}>
+                  The themes that kept coming back
+                </ThemedText>
+                <View style={styles.themes}>
+                  {shelf.themes.map((theme) => (
+                    <View key={theme.theme} style={styles.theme}>
+                      <ThemedText type="small" numberOfLines={1} style={styles.themeName}>
+                        {theme.theme}
+                      </ThemedText>
+                      <View style={styles.themeTrack}>
+                        <View
+                          style={[
+                            styles.themeFill,
+                            { width: `${Math.round((theme.count / shelf.themes[0].count) * 100)}%` }
+                          ]}
+                        />
+                      </View>
+                      <ThemedText type="caption" themeColor="textSecondary" style={styles.themeCount}>
+                        {theme.count}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+              </>
             ) : null}
-          </View>
+          </Section>
         ) : null}
-      </ScrollView>
 
-      <GenreSheet genre={openGenre} libraryTotal={genres.total} onClose={() => setOpenGenre(null)} />
+        {shelf.lending.loans > 0 ? (
+          <Section eyebrow="Lending">
+            <Sentence>
+              <Em>
+                {shelf.lending.friends} {plural(shelf.lending.friends, 'friend')}
+              </Em>{' '}
+              borrowed {shelf.lending.loans} of your books this year.
+            </Sentence>
+
+            {shelf.lending.onTimeRate !== null ? (
+              <>
+                <View style={styles.meter}>
+                  <View style={[styles.meterFill, { width: `${Math.round(shelf.lending.onTimeRate * 100)}%` }]} />
+                </View>
+                <View style={styles.meterCaption}>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {Math.round(shelf.lending.onTimeRate * 100)}% came back on time
+                  </ThemedText>
+                  {shelf.lending.averageDays !== null ? (
+                    <ThemedText type="caption" themeColor="textSecondary">
+                      {Math.round(shelf.lending.averageDays)} days on average
+                    </ThemedText>
+                  ) : null}
+                </View>
+              </>
+            ) : (
+              <ThemedText type="caption" themeColor="textSecondary" style={styles.nothingBack}>
+                Nothing has come back yet.
+              </ThemedText>
+            )}
+
+            <View style={styles.borrowers}>
+              {shelf.lending.topBorrowers.map((borrower) => (
+                <View key={borrower.name} style={styles.borrower}>
+                  <View style={styles.avatar}>
+                    <ThemedText type="caption" style={styles.avatarText}>
+                      {borrower.name.slice(0, 2).toUpperCase()}
+                    </ThemedText>
+                  </View>
+                  <ThemedText type="small" style={styles.borrowerName} numberOfLines={1}>
+                    {borrower.name}
+                  </ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {borrower.count} {plural(borrower.count, 'book')}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          </Section>
+        ) : null}
+
+        <ThemedText type="caption" themeColor="textSecondary" style={styles.foot}>
+          {overview.books.toLocaleString()} on the shelf ·{' '}
+          {Math.max(0, overview.books - overview.booksRead).toLocaleString()} not read yet · {overview.activeLoans} out
+          right now
+        </ThemedText>
+      </ScrollView>
     </ThemedView>
   );
 }
 
-function Tile({ value, label, danger = false }: { value: number; label: string; danger?: boolean }) {
+function Section({ eyebrow, children }: { eyebrow: string; children: React.ReactNode }) {
   return (
-    <View
-      accessible
-      accessibilityLabel={`${label}: ${value}`}
-      style={[styles.tile, danger && styles.tileDanger]}>
-      <ThemedText style={[styles.tileValue, danger && styles.tileValueDanger]}>
-        {value.toLocaleString()}
+    <View style={styles.section}>
+      <ThemedText type="caption" style={styles.sectionEyebrow}>
+        {eyebrow.toUpperCase()}
       </ThemedText>
-      <ThemedText style={[styles.tileLabel, danger && styles.tileLabelDanger]}>{label}</ThemedText>
+      {children}
     </View>
   );
 }
 
-// Three steps of one hue, darkest for read. Segments are separated by a 2px gap in the surface
-// colour rather than a stroke around each mark.
-const STATE_STEPS = [
-  { key: 'Read', colour: Chart.ramp[4] },
-  { key: 'Reading', colour: Chart.ramp[2] },
-  { key: 'Unread', colour: Chart.ramp[1] }
-] as const;
-
-function StateBar({ read, reading, unread }: { read: number; reading: number; unread: number }) {
-  const counts = [read, reading, unread];
-  const present = counts.map((count, index) => ({ count, index })).filter(({ count }) => count > 0);
-
-  return (
-    <>
-      <View
-        accessible
-        accessibilityLabel={`${read} read, ${reading} reading, ${unread} unread`}
-        style={styles.stateBar}>
-        {present.map(({ count, index }, position) => (
-          <View
-            key={STATE_STEPS[index].key}
-            style={[
-              { flexGrow: count, backgroundColor: STATE_STEPS[index].colour },
-              styles.stateSegment,
-              position === 0 && styles.stateSegmentFirst,
-              position === present.length - 1 && styles.stateSegmentLast
-            ]}
-          />
-        ))}
-      </View>
-      <View style={styles.legend}>
-        {STATE_STEPS.map((step, index) => (
-          <View key={step.key} style={styles.legendItem}>
-            <View style={[styles.swatch, { backgroundColor: step.colour }]} />
-            <ThemedText style={styles.legendName}>{step.key}</ThemedText>
-            <ThemedText style={styles.legendValue}>{counts[index].toLocaleString()}</ThemedText>
-          </View>
-        ))}
-      </View>
-    </>
-  );
+function Sentence({ children }: { children: React.ReactNode }) {
+  return <ThemedText style={styles.sentence}>{children}</ThemedText>;
 }
 
-// One measure, one hue: colouring these by length would spend the identity channel re-stating what
-// bar length already shows, and imply the themes belong to different families when they don't.
-function ThemeBar({ label, count, max }: { label: string; count: number; max: number }) {
-  const share = max > 0 ? Math.max(0.04, count / max) : 0;
-
-  return (
-    <View accessible accessibilityLabel={`${label}: ${count} books`} style={styles.themeRow}>
-      <View style={styles.themeHead}>
-        <ThemedText style={styles.themeLabel} numberOfLines={1}>
-          {label}
-        </ThemedText>
-        <ThemedText style={styles.themeCount}>{count.toLocaleString()}</ThemedText>
-      </View>
-      <View style={styles.themeTrack}>
-        <View style={[styles.themeFill, { width: `${share * 100}%` }]} />
-      </View>
-    </View>
-  );
+function Em({ children }: { children: React.ReactNode }) {
+  return <ThemedText style={styles.em}>{children}</ThemedText>;
 }
 
-// The design's proportions, scaled to whatever width the card gives it.
-const CHART_VB_WIDTH = 352;
-const CHART_VB_HEIGHT = 134;
-const BASELINE = 108;
-const AXIS_GUTTER = 20;
-const BAR_WIDTH = 16;
+// Days to weeks, each week keeping its month so one can be picked out of the ribbon. Weeks with
+// no reading stay in as gaps rather than being dropped: a quiet fortnight is part of the shape of
+// a year, and closing it up would draw a year nobody had.
+function buildWeeks(activity: ActivityDay[], year?: number, now?: number) {
+  if (!year || !now) return [];
+  const byDay = new Map(activity.map((day) => [day.date, day.pages]));
+  const start = Date.UTC(year, 0, 1);
+  const weeks: { month: number; pages: number }[] = [];
 
-function LoansChart({ months }: { months: MonthlyCount[] }) {
-  const [width, setWidth] = useState(0);
-  const max = Math.max(1, ...months.map((month) => month.count));
-  // A round top tick, so the axis reads in whole numbers rather than at the data's exact ceiling.
-  const top = Math.max(2, Math.ceil(max / 2) * 2);
-  const band = (CHART_VB_WIDTH - AXIS_GUTTER) / Math.max(1, months.length);
-  const y = (value: number) => BASELINE - (value / top) * BASELINE;
-
-  return (
-    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-      {width > 0 ? (
-        <Svg width={width} height={(width * CHART_VB_HEIGHT) / CHART_VB_WIDTH} viewBox={`0 0 ${CHART_VB_WIDTH} ${CHART_VB_HEIGHT}`}>
-          {[0, top / 2, top].map((value) => (
-            <Line
-              key={value}
-              x1={AXIS_GUTTER}
-              y1={y(value)}
-              x2={CHART_VB_WIDTH}
-              y2={y(value)}
-              stroke={value === 0 ? Colors.border : Chart.gridline}
-              strokeWidth={1}
-            />
-          ))}
-          {[0, top / 2, top].map((value) => (
-            <SvgText
-              key={`label-${value}`}
-              x={AXIS_GUTTER - 6}
-              y={y(value) + 3.5}
-              textAnchor="end"
-              fontFamily={Fonts.bodySemiBold}
-              fontSize={10}
-              fill={Colors.disabledText}>
-              {String(value)}
-            </SvgText>
-          ))}
-          {months.map((month, index) => {
-            const current = index === months.length - 1;
-            const centre = AXIS_GUTTER + band * index + band / 2;
-            const left = centre - BAR_WIDTH / 2;
-            const height = month.count === 0 ? 0 : Math.max(3, BASELINE - y(month.count));
-            const radius = Math.min(4, height);
-            return (
-              <Path
-                key={month.month}
-                // Rounded at the value end, square at the baseline.
-                d={`M${left} ${BASELINE}V${BASELINE - height + radius}a${radius} ${radius} 0 0 1 ${radius} -${radius}h${BAR_WIDTH - radius * 2}a${radius} ${radius} 0 0 1 ${radius} ${radius}V${BASELINE}Z`}
-                fill={current ? Chart.ramp[2] : Colors.brand}
-              />
-            );
-          })}
-          {months.length > 0 && months[months.length - 1].count > 0 ? (
-            <SvgText
-              x={AXIS_GUTTER + band * (months.length - 1) + band / 2}
-              y={y(months[months.length - 1].count) - 6}
-              textAnchor="middle"
-              fontFamily={Fonts.bodyBold}
-              fontSize={11}
-              fill={Colors.text}>
-              {String(months[months.length - 1].count)}
-            </SvgText>
-          ) : null}
-          {months.map((month, index) => (
-            <SvgText
-              key={`month-${month.month}`}
-              x={AXIS_GUTTER + band * index + band / 2}
-              y={123}
-              textAnchor="middle"
-              fontFamily={Fonts.bodySemiBold}
-              fontSize={10}
-              fill={Colors.textSecondary}>
-              {monthDate(month.month).toLocaleDateString(undefined, { month: 'short' })}
-            </SvgText>
-          ))}
-        </Svg>
-      ) : null}
-    </View>
-  );
+  for (let index = 0; start + index * 7 * 86400000 <= now && weeks.length < WEEKS; index += 1) {
+    const weekStart = new Date(start + index * 7 * 86400000);
+    let pages = 0;
+    for (let day = 0; day < 7; day += 1) {
+      pages += byDay.get(new Date(weekStart.getTime() + day * 86400000).toISOString().slice(0, 10)) ?? 0;
+    }
+    weeks.push({ month: weekStart.getUTCMonth(), pages });
+  }
+  return weeks;
 }
 
-// ---------------------------------------------------------------- genre donut
+type Highlight = { key: string; book: YearShelfData['books'][number]; value: string; unit: string };
 
-const DONUT_BOX = 232;
-const DONUT_C = 116;
-const OUTER_R = 100;
-const INNER_R = 62;
-// Segments are separated by a gap in the surface colour, never by a stroke around a mark. Measured
-// at the outer edge, where the eye reads it, so it sits slightly narrower on the inner curve.
-const DONUT_GAP = 2;
-const GAP_ANGLE = DONUT_GAP / OUTER_R;
+// Four facts about the year, each anchored to a book you can see. Every one is left out rather
+// than faked when what it needs is missing: a "quickest" worked out from books that were never
+// started would just be whichever one the catalogue knew least about.
+function buildHighlights(books: YearShelfData['books']): Highlight[] {
+  if (!books.length) return [];
+  const out: Highlight[] = [];
 
-const polar = (radius: number, angle: number) => ({
-  x: DONUT_C + radius * Math.cos(angle),
-  y: DONUT_C + radius * Math.sin(angle)
-});
+  const withPages = books.filter((book) => book.pageCount);
+  if (withPages.length) {
+    const longest = [...withPages].sort((a, b) => (b.pageCount ?? 0) - (a.pageCount ?? 0))[0];
+    out.push({ key: 'Longest', book: longest, value: (longest.pageCount ?? 0).toLocaleString(), unit: 'pages' });
+  }
 
-const ringSegment = (from: number, to: number) => {
-  const large = to - from > Math.PI ? 1 : 0;
-  const o1 = polar(OUTER_R, from);
-  const o2 = polar(OUTER_R, to);
-  const i2 = polar(INNER_R, to);
-  const i1 = polar(INNER_R, from);
-  return `M${o1.x} ${o1.y}A${OUTER_R} ${OUTER_R} 0 ${large} 1 ${o2.x} ${o2.y}`
-    + `L${i2.x} ${i2.y}A${INNER_R} ${INNER_R} 0 ${large} 0 ${i1.x} ${i1.y}Z`;
-};
+  const timed = books.filter((book) => book.days !== null);
+  if (timed.length) {
+    const quickest = [...timed].sort((a, b) => (a.days ?? 0) - (b.days ?? 0))[0];
+    out.push({
+      key: 'Quickest',
+      book: quickest,
+      value: String(quickest.days),
+      unit: plural(quickest.days ?? 0, 'day')
+    });
 
-// Five identity hues, then one neutral tail. A seventh genre folds into Other rather than getting a
-// generated hue, and the uncategorised remainder folds in with it — which is why the ring always adds
-// up to the shelf total in the middle.
-const foldGenres = (breakdown: Genres) => {
-  const named = breakdown.genres.slice(0, GENRE_SLOTS).map((genre, index) => ({
-    ...genre,
-    colour: Chart.genre[index]
-  }));
-  const tail = breakdown.total - named.reduce((sum, genre) => sum + genre.count, 0);
-  return tail > 0 ? [...named, { name: 'Other', count: tail, colour: Chart.genreOther }] : named;
-};
+    const slowest = [...timed].sort((a, b) => (b.days ?? 0) - (a.days ?? 0))[0];
+    // Only when it is a different book and genuinely took a while: "took its time, 1 month" about
+    // the book that was also the quickest is not a highlight.
+    if (slowest.id !== quickest.id && (slowest.days ?? 0) >= 30) {
+      const months = Math.round((slowest.days ?? 0) / 30);
+      out.push({ key: 'Took its time', book: slowest, value: String(months), unit: plural(months, 'month') });
+    }
+  }
 
-type DrawnSlice = {
-  name: string;
-  count: number;
-  colour: string;
-  from: number;
-  to: number;
-  // A single genre filling the ring; an arc whose ends coincide draws nothing.
-  whole: boolean;
-};
+  const lent = [...books].sort((a, b) => b.timesLent - a.timesLent)[0];
+  if (lent.timesLent > 0) {
+    out.push({
+      key: 'Lent the most',
+      book: lent,
+      value: String(lent.timesLent),
+      unit: plural(lent.timesLent, 'time')
+    });
+  }
 
-function GenreDonut({
-  breakdown,
-  onSelect
-}: {
-  breakdown: Genres;
-  onSelect: (slice: GenreSelection) => void;
-}) {
-  const slices = foldGenres(breakdown);
-  const total = slices.reduce((sum, slice) => sum + slice.count, 0);
-  const [width, setWidth] = useState(0);
-  const size = Math.min(DONUT_BOX, width || DONUT_BOX);
-
-  // Threaded through a reduce rather than accumulated in a mutable binding: the running angle is
-  // derived from the slices before it, and a `let` mutated inside map() is both a reassignment after
-  // render (which the hooks compiler rejects) and a dependence on map's iteration order.
-  const drawn = slices.reduce<{ offset: number; segments: DrawnSlice[] }>(
-    ({ offset, segments }, slice) => {
-      const sweep = total > 0 ? (slice.count / total) * Math.PI * 2 : 0;
-      const from = offset + GAP_ANGLE / 2;
-      // Clamped so a sliver narrower than the gap cannot invert into a backwards arc.
-      const to = Math.max(from, offset + sweep - GAP_ANGLE / 2);
-      return {
-        offset: offset + sweep,
-        segments: [...segments, { ...slice, from, to, whole: sweep >= Math.PI * 2 - GAP_ANGLE }]
-      };
-    },
-    // Twelve o'clock.
-    { offset: -Math.PI / 2, segments: [] }
-  ).segments;
-
-  return (
-    <>
-      <View style={styles.donutBox} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-        {size > 0 ? (
-          <Svg width={size} height={size} viewBox={`0 0 ${DONUT_BOX} ${DONUT_BOX}`}>
-            {drawn.map((slice) =>
-              // One genre filling the ring sweeps a full turn, where the arc's start and end points
-              // coincide and the path collapses to nothing. A stroked circle is the honest ring.
-              slice.whole ? (
-                <Circle
-                  key={slice.name}
-                  cx={DONUT_C}
-                  cy={DONUT_C}
-                  r={(OUTER_R + INNER_R) / 2}
-                  stroke={slice.colour}
-                  strokeWidth={OUTER_R - INNER_R}
-                  fill="none"
-                />
-              ) : (
-                <Path
-                  key={slice.name}
-                  d={ringSegment(slice.from, slice.to)}
-                  fill={slice.colour}
-                  onPress={() => onSelect({ name: slice.name, count: slice.count, colour: slice.colour })}
-                />
-              )
-            )}
-            <SvgText
-              x={DONUT_C}
-              y={DONUT_C - 4}
-              textAnchor="middle"
-              fontFamily={Fonts.display}
-              fontSize={40}
-              fill={Colors.text}>
-              {breakdown.total.toLocaleString()}
-            </SvgText>
-            <SvgText
-              x={DONUT_C}
-              y={DONUT_C + 20}
-              textAnchor="middle"
-              fontFamily={Fonts.bodySemiBold}
-              fontSize={13}
-              fill={Colors.textSecondary}>
-              {breakdown.total === 1 ? 'book' : 'books'}
-            </SvgText>
-          </Svg>
-        ) : null}
-      </View>
-
-      <View style={styles.genreRows}>
-        {/* The legend is the real target: a 38px-wide arc is a poor one, and every row here already
-            names and numbers its slice. */}
-        {slices.map((slice) => (
-          <Pressable
-            key={slice.name}
-            accessibilityRole="button"
-            accessibilityLabel={`${slice.name}: ${slice.count} books. Open the list`}
-            onPress={() => onSelect({ name: slice.name, count: slice.count, colour: slice.colour })}
-            style={({ pressed }) => [styles.genreRow, pressed && styles.pressed]}>
-            <View style={[styles.swatch, { backgroundColor: slice.colour }]} />
-            <ThemedText style={styles.genreName} numberOfLines={1}>
-              {slice.name}
-            </ThemedText>
-            <ThemedText style={styles.genreCount}>{slice.count.toLocaleString()}</ThemedText>
-            <ThemedText style={styles.genrePercent}>
-              {`${total > 0 ? Math.round((slice.count / total) * 100) : 0}%`}
-            </ThemedText>
-          </Pressable>
-        ))}
-      </View>
-    </>
-  );
+  return out;
 }
 
-// ---------------------------------------------------------------- activity heatmap
-
-const CELL = 15;
-const CELL_GAP = 4;
-const PITCH = CELL + CELL_GAP;
-const GUTTER = 22;
-const GRID_TOP = 14;
-// A margin past the last cell, so a month label on the final column is not clipped by the viewBox.
-const HEAT_MARGIN = 4;
-// 18 columns and 7 rows at this pitch, plus the weekday gutter, the month strip and that margin:
-// 22 + 342 − 4 + 4 = 364 wide and 14 + 133 − 4 + 6 = 149 tall, which is the design's own canvas.
-const HEAT_WIDTH = GUTTER + WEEKS * PITCH - CELL_GAP + HEAT_MARGIN;
-const HEAT_HEIGHT = GRID_TOP + 7 * PITCH - CELL_GAP + 6;
-
-// The bands the ramp stands for. Darker means more pages that day.
-const rampFor = (pages: number) => {
-  if (pages <= 0) return Chart.ramp[0];
-  if (pages <= 15) return Chart.ramp[1];
-  if (pages <= 35) return Chart.ramp[2];
-  if (pages <= 60) return Chart.ramp[3];
-  return Chart.ramp[4];
-};
-
-// Monday of the week containing this date, in UTC — the same calendar the API buckets by.
-const mondayUtc = (date: Date) => {
-  const day = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
-  return day;
-};
-
-const isoDay = (date: Date) => date.toISOString().slice(0, 10);
-
-// Drawn at its own size and allowed to overflow, rather than scaled to the card.
-//
-// Scaling was the first attempt and it read as cramped: 364px of design inside about 332px of card
-// puts the 15px cells at 13.7px with 3.6px gaps, and at that size the 4px radius and the gap between
-// cells stop being legible as separate marks. The design specifies the cell, not the canvas, so the
-// grid keeps 15px and scrolls — which also means eighteen weeks stays eighteen weeks on a narrow
-// phone instead of quietly becoming unreadable.
-function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
-  const scroller = useRef<ScrollView>(null);
-  const pages = new Map(days.map((day) => [day.date, day.pages]));
-  const firstMonday = mondayUtc(new Date());
-  firstMonday.setUTCDate(firstMonday.getUTCDate() - (WEEKS - 1) * 7);
-
-  const columns = Array.from({ length: WEEKS }, (_, week) => {
-    const monday = new Date(firstMonday);
-    monday.setUTCDate(monday.getUTCDate() + week * 7);
-    return { week, monday };
+function buildGenres(books: YearShelfData['books']) {
+  const counts = new Map<string, number>();
+  books.forEach((book) => {
+    if (book.category) counts.set(book.category, (counts.get(book.category) ?? 0) + 1);
   });
-
-  return (
-    <>
-      <ScrollView
-        ref={scroller}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        // The week you care about is the current one, so the grid opens at its right edge.
-        onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: false })}>
-        <Svg width={HEAT_WIDTH} height={HEAT_HEIGHT} viewBox={`0 0 ${HEAT_WIDTH} ${HEAT_HEIGHT}`}>
-            {/* Monday, Wednesday, Friday only: seven letters down the side is noise. */}
-            {[0, 2, 4].map((row) => (
-              <SvgText
-                key={row}
-                x={0}
-                y={GRID_TOP + row * PITCH + 11}
-                fontFamily={Fonts.bodyBold}
-                fontSize={9}
-                fill={Colors.disabledText}>
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'][row]}
-              </SvgText>
-            ))}
-            {/* A month is labelled on the first column that falls inside it. */}
-            {columns.map(({ week, monday }, index) =>
-              index === 0 || monday.getUTCMonth() !== columns[index - 1].monday.getUTCMonth() ? (
-                <SvgText
-                  key={`month-${week}`}
-                  x={GUTTER + week * PITCH}
-                  y={8}
-                  fontFamily={Fonts.bodySemiBold}
-                  fontSize={9.5}
-                  fill={Colors.textSecondary}>
-                  {monday.toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' })}
-                </SvgText>
-              ) : null
-            )}
-            {columns.map(({ week, monday }) =>
-              Array.from({ length: 7 }, (_, row) => {
-                const date = new Date(monday);
-                date.setUTCDate(date.getUTCDate() + row);
-                const read = pages.get(isoDay(date)) ?? 0;
-                return (
-                  <Rect
-                    key={`${week}-${row}`}
-                    x={GUTTER + week * PITCH}
-                    y={GRID_TOP + row * PITCH}
-                    width={CELL}
-                    height={CELL}
-                    rx={4}
-                    fill={rampFor(read)}
-                  />
-                );
-              })
-            )}
-        </Svg>
-      </ScrollView>
-      <View style={styles.rampKey}>
-        <ThemedText style={styles.rampKeyLabel}>Fewer pages</ThemedText>
-        {Chart.ramp.map((colour) => (
-          <View key={colour} style={[styles.rampSwatch, { backgroundColor: colour }]} />
-        ))}
-        <ThemedText style={styles.rampKeyLabel}>More</ThemedText>
-      </View>
-    </>
-  );
-}
-
-// Shown when there is nothing worth counting. One illustration, one sentence, one way forward.
-function EmptyStats({ onAdd }: { onAdd: () => void }) {
-  return (
-    <View style={styles.empty}>
-      <Svg width={150} height={126} viewBox="0 0 150 126" fill="none">
-        <Circle cx={75} cy={66} r={50} fill={Colors.brandTint} />
-        <Path
-          d="M75 46c-10-7.5-23-9.5-34-7.5v50c11-2 24 0 34 7.5 10-7.5 23-9.5 34-7.5v-50c-11-2-24 0-34 7.5z"
-          fill={Colors.surface}
-          stroke={Colors.brand}
-          strokeWidth={2.6}
-          strokeLinejoin="round"
-        />
-        <Path d="M75 46v50" stroke={Colors.brand} strokeWidth={2.6} strokeLinecap="round" />
-        <Path
-          d="M53 56h13M53 67h13M84 56h13M84 67h13"
-          stroke={Colors.accent}
-          strokeWidth={3.4}
-          strokeLinecap="round"
-        />
-        <Path d="M118 22l2.4 6.1 6.1 2.4-6.1 2.4-2.4 6.1-2.4-6.1-6.1-2.4 6.1-2.4z" fill={Colors.accent} />
-        <Path
-          d="M29 34l1.6 4.1 4.1 1.6-4.1 1.6L29 45.4l-1.6-4.1-4.1-1.6 4.1-1.6z"
-          fill={Colors.brand}
-          opacity={0.45}
-        />
-      </Svg>
-      <ThemedText style={styles.emptyTitle}>Nothing to count yet</ThemedText>
-      <ThemedText style={styles.emptyBody}>
-        Add a few books and log what you&apos;re reading — your themes, reading states and loans show up here.
-      </ThemedText>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onAdd}
-        style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}>
-        <ThemedText style={styles.emptyButtonLabel}>Add a book</ThemedText>
-      </Pressable>
-    </View>
-  );
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, GENRE_COLORS.length)
+    .map(([name, count]) => ({ name, count }));
 }
 
 const styles = StyleSheet.create({
@@ -743,303 +489,268 @@ const styles = StyleSheet.create({
     flex: 1
   },
   loading: {
-    gap: 16,
-    padding: 20
+    padding: Spacing.three
   },
-  range: {
-    paddingHorizontal: 20,
-    // Air under the pill. With 4px the hero sat hard against it and the two read as one block.
-    paddingBottom: 12
+  barRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two
   },
-  pressed: {
-    opacity: 0.7
+  barTitle: {
+    flex: 1
   },
-  scroll: {
-    gap: 16,
-    paddingHorizontal: 20,
-    // The hero is the first thing in the scroll, and it wants room to be the thing it is rather than
-    // the next line after the control above it.
-    paddingTop: 8,
-    paddingBottom: 20,
+  content: {
+    paddingBottom: Spacing.six,
     width: '100%',
     maxWidth: MaxContentWidth,
     alignSelf: 'center'
   },
+
   hero: {
-    gap: 6,
-    padding: 22,
-    borderRadius: Radius.card,
-    backgroundColor: Colors.text
+    backgroundColor: Colors.buttonPrimary,
+    borderBottomLeftRadius: Radius.sheet,
+    borderBottomRightRadius: Radius.sheet,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.four,
+    paddingBottom: Spacing.four
   },
-  heroFigure: {
+  eyebrow: {
+    color: Colors.accent,
+    fontFamily: Fonts.bodyBold,
+    letterSpacing: 1.4
+  },
+  heroHeadline: {
     fontFamily: Fonts.display,
-    fontSize: 52,
-    lineHeight: 54,
+    fontSize: 40,
+    lineHeight: 43,
+    letterSpacing: -1.2,
+    color: '#F2F8EC',
+    marginTop: Spacing.two
+  },
+  heroCount: {
+    fontFamily: Fonts.display,
+    fontSize: 40,
+    lineHeight: 43,
+    letterSpacing: -1.2,
     color: Colors.accent
   },
-  heroLabel: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 18,
-    color: Chart.onInk
-  },
   heroSub: {
-    marginTop: 4,
-    fontFamily: Fonts.body,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Chart.onInkMuted
+    color: '#A9C29A',
+    marginTop: Spacing.two
   },
-  tiles: {
+  heroSubStrong: {
+    color: '#F2F8EC',
+    fontFamily: Fonts.bodySemiBold
+  },
+  shelfWrap: {
+    marginTop: Spacing.four
+  },
+  make: {
+    height: 50,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.accent,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    marginTop: Spacing.four
   },
-  tile: {
-    // Two per row, with the gap taken out of the width.
-    width: '48%',
-    flexGrow: 1,
-    gap: 2,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface
+  pressed: {
+    opacity: 0.85
   },
-  tileDanger: {
-    borderColor: '#F2CFCB',
-    backgroundColor: Colors.dangerTint
+  makeText: {
+    color: '#163300'
   },
-  tileValue: {
-    fontFamily: Fonts.display,
-    fontSize: 28,
-    lineHeight: 32,
-    color: Colors.text
+  heroNote: {
+    color: '#89A178',
+    textAlign: 'center',
+    marginTop: Spacing.three
   },
-  tileValueDanger: {
-    color: Colors.danger
+
+  section: {
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.five
   },
-  tileLabel: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textSecondary
-  },
-  tileLabelDanger: {
+  sectionEyebrow: {
+    color: Colors.brand,
     fontFamily: Fonts.bodyBold,
-    color: Colors.danger
+    letterSpacing: 1.4
   },
-  card: {
-    gap: 14,
-    padding: 20,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface
-  },
-  cardHead: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 10
-  },
-  cardTitle: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 16,
-    lineHeight: 21,
-    color: Colors.text
-  },
-  cardFigure: {
-    fontFamily: Fonts.display,
+  sentence: {
+    fontFamily: Fonts.heading,
     fontSize: 22,
-    lineHeight: 26,
+    lineHeight: 28,
+    letterSpacing: -0.4,
+    color: Colors.text,
+    marginTop: Spacing.two
+  },
+  em: {
+    fontFamily: Fonts.heading,
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.4,
+    color: Colors.brand
+  },
+
+  highlights: {
+    marginTop: Spacing.three,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border
+  },
+  highlight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingVertical: Spacing.three,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border
+  },
+  highlightText: {
+    flex: 1,
+    minWidth: 0
+  },
+  kicker: {
+    color: Colors.disabledText,
+    fontFamily: Fonts.bodyBold,
+    letterSpacing: 1
+  },
+  highlightValue: {
+    alignItems: 'flex-end'
+  },
+  valueNumber: {
+    fontFamily: Fonts.display,
+    fontSize: 19,
+    lineHeight: 23,
     color: Colors.text
   },
-  cardNote: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    lineHeight: 17,
-    color: Colors.textSecondary
+
+  ribbon: {
+    marginTop: Spacing.three
   },
-  stateBar: {
+  months: {
     flexDirection: 'row',
-    height: 26,
-    gap: 2
+    marginTop: Spacing.one
   },
-  stateSegment: {
-    height: 26
+  month: {
+    flex: 1,
+    textAlign: 'center'
   },
-  stateSegmentFirst: {
-    borderTopLeftRadius: 8,
-    borderBottomLeftRadius: 8
+
+  genreBar: {
+    flexDirection: 'row',
+    height: 16,
+    gap: 2,
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginTop: Spacing.three
   },
-  stateSegmentLast: {
-    borderTopRightRadius: 8,
-    borderBottomRightRadius: 8
-  },
-  legend: {
+  genreLegend: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16
+    marginTop: Spacing.two
   },
-  legendItem: {
+  genreItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7
+    gap: Spacing.two,
+    width: '50%',
+    paddingVertical: Spacing.one,
+    paddingRight: Spacing.two
   },
-  swatch: {
-    width: 10,
-    height: 10,
+  dot: {
+    width: 9,
+    height: 9,
     borderRadius: 3
-  },
-  legendName: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textBody
-  },
-  legendValue: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textSecondary,
-    fontVariant: ['tabular-nums']
-  },
-  donutBox: {
-    alignItems: 'center'
-  },
-  genreRows: {
-    gap: 11
-  },
-  genreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
   },
   genreName: {
-    flexGrow: 1,
-    flexShrink: 1,
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.textBody
+    flex: 1,
+    fontFamily: Fonts.bodySemiBold
   },
   genreCount: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.text,
-    fontVariant: ['tabular-nums']
-  },
-  genrePercent: {
-    width: 34,
-    textAlign: 'right',
     fontFamily: Fonts.bodySemiBold,
-    fontSize: 11.5,
-    lineHeight: 16,
-    color: Colors.textSecondary,
     fontVariant: ['tabular-nums']
   },
-  rampKey: {
+  themesLead: {
+    marginTop: Spacing.four
+  },
+  themes: {
+    marginTop: Spacing.two,
+    gap: Spacing.two
+  },
+  theme: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 12
+    gap: Spacing.two
   },
-  rampKeyLabel: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 11,
-    lineHeight: 15,
-    color: Colors.textSecondary
-  },
-  rampSwatch: {
-    width: 13,
-    height: 13,
-    borderRadius: 3
-  },
-  themeRows: {
-    gap: 10
-  },
-  themeRow: {
-    gap: 5
-  },
-  themeHead: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 10
-  },
-  themeLabel: {
-    flexShrink: 1,
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: Colors.textBody
-  },
-  themeCount: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textSecondary,
-    fontVariant: ['tabular-nums']
+  themeName: {
+    width: 120,
+    fontFamily: Fonts.bodySemiBold
   },
   themeTrack: {
-    height: 12,
-    borderRadius: 0
+    flex: 1
   },
   themeFill: {
-    height: 12,
-    // Square at the baseline, rounded at the value end.
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
-    backgroundColor: Chart.genre[0]
-  },
-  meterTrack: {
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.brandTint,
-    overflow: 'hidden'
-  },
-  meterFill: {
-    height: 10,
-    borderRadius: 5,
+    height: 6,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
     backgroundColor: Colors.brand
   },
-  empty: {
+  themeCount: {
+    width: 22,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums']
+  },
+
+  meter: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.brandTint,
+    overflow: 'hidden',
+    marginTop: Spacing.three
+  },
+  meterFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: Colors.brand
+  },
+  meterCaption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: Spacing.two
+  },
+  nothingBack: {
+    marginTop: Spacing.three
+  },
+  borrowers: {
+    marginTop: Spacing.two
+  },
+  borrower: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.brandTint,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  avatarText: {
+    color: Colors.brand,
+    fontFamily: Fonts.bodyBold
+  },
+  borrowerName: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingHorizontal: 36
+    fontFamily: Fonts.bodySemiBold
   },
-  emptyTitle: {
-    marginTop: 8,
-    fontFamily: Fonts.bodyBold,
-    fontSize: 18,
-    lineHeight: 24,
-    color: Colors.text
-  },
-  emptyBody: {
-    fontFamily: Fonts.body,
-    fontSize: 14,
-    lineHeight: 20,
+
+  foot: {
     textAlign: 'center',
-    color: Colors.textSecondary
-  },
-  emptyButton: {
-    height: 52,
-    marginTop: 8,
-    paddingHorizontal: 24,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.text
-  },
-  emptyButtonLabel: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 16,
-    lineHeight: 20,
-    color: Colors.textOnDark
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.five
   }
 });

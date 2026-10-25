@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign in with a Google ID token, creating or linking an account by its verified email */
+        post: operations["googleSignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/refresh": {
         parameters: {
             query?: never;
@@ -1057,6 +1074,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stats/year/shelf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The books finished in a year, with the themes and lending that go with them */
+        get: operations["getYearShelf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/waitlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask to be told when the app is released */
+        post: operations["joinWaitlist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1232,9 +1283,12 @@ export interface components {
                 name: string;
                 count: number;
             }[];
-            /** @description What the shelf's books are about, with how many hold each one. The count says whether a theme leads anywhere: most belong to a single book */
+            /** @description What the shelf's books are about, with how many hold each one. The count says whether a theme leads anywhere: most belong to a single book. Wordings differing only in case, hyphens, plurals, a leading article or word order share one entry */
             themes: {
+                /** @description A real wording from the shelf, for showing */
                 name: string;
+                /** @description The theme's identity. Send this back as ?themes= rather than the name, though either is accepted */
+                key: string;
                 count: number;
             }[];
         };
@@ -1284,6 +1338,19 @@ export interface components {
                 score: number;
                 /** @description What earned this match, from the book itself */
                 reason: string;
+                /** @description The parts the score was built from */
+                scores: {
+                    /** @description Cosine similarity between the question and the book, 0 when no vector was used */
+                    semantic: number;
+                    /** @description How much of the question's distinctive wording the book's text carries */
+                    lexical: number;
+                    /** @description How much of the score came from meaning rather than words, decided per book by how much text it has */
+                    trust: number;
+                    /** @description True when the only topical text about this book was written by the enrichment model, with no catalog description, subjects or tags behind it. Such a book is scored slightly lower */
+                    inferredOnly: boolean;
+                    /** @description The blended score, after any penalty. Matches `score` */
+                    total: number;
+                };
             }[];
         };
         /** @description A catalog match, not yet in the collection. Add it with POST /books (author: authors joined with ", "; isbn: isbn13; category: first of categories). */
@@ -1355,6 +1422,16 @@ export interface components {
                 pageCount: number | null;
                 /** @description Already with someone else */
                 onLoan: boolean;
+                /** @description The owner rated it 4 or 5 */
+                favourite: boolean;
+                /** @description What the owner gave it; 0 means unrated */
+                rating: number;
+                /** @description The owner is part-way through this one */
+                reading: boolean;
+                /** @description How far in, while they are reading it */
+                currentPage: number | null;
+                /** @description A short line from the publisher description */
+                blurb: string | null;
                 /** @description You have asked for this one */
                 requested: boolean;
             }[];
@@ -1589,6 +1666,41 @@ export interface components {
                 addedAt: string;
             } | null;
         };
+        YearShelf: {
+            year: number;
+            /** @description Finished within the year, oldest first */
+            books: {
+                id: string;
+                title: string;
+                author: string;
+                thumbnail: string | null;
+                pageCount: number | null;
+                category: string | null;
+                rating: number;
+                /** Format: date-time */
+                finishedAt: string;
+                /** @description Days from starting to finishing; null when it was never started */
+                days: number | null;
+                /** @description How often this book has been lent, ever */
+                timesLent: number;
+            }[];
+            /** @description Commonest themes among those books; empty when none of them have been described */
+            themes: {
+                theme: string;
+                count: number;
+            }[];
+            lending: {
+                loans: number;
+                friends: number;
+                /** @description Null until a loan has come back */
+                onTimeRate: number | null;
+                averageDays: number | null;
+                topBorrowers: {
+                    name: string;
+                    count: number;
+                }[];
+            };
+        };
         Error: {
             error: {
                 code: string;
@@ -1678,6 +1790,55 @@ export interface operations {
         responses: {
             /** @description Logged in */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AuthSession"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    googleSignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The ID token from Google Sign-In, not an access token */
+                    idToken: string;
+                    device?: {
+                        /** @description Shown in the session list, e.g. "Pixel 8" */
+                        name?: string;
+                        /** @enum {string} */
+                        platform?: "android" | "ios" | "web" | "other";
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Signed in to an existing account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AuthSession"];
+                    };
+                };
+            };
+            /** @description A new account was created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4058,6 +4219,72 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getYearShelf: {
+        parameters: {
+            query?: {
+                year?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The year, book by book */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["YearShelf"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    joinWaitlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    email: string;
+                    /** @description Which page or campaign sent them, for counting later. Never shown to anyone. */
+                    source?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description On the list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @constant */
+                            joined: true;
+                            /** @description True when this address was already on the list, so the page can say so rather than repeat itself */
+                            alreadyJoined: boolean;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

@@ -1,0 +1,347 @@
+import { Image } from 'expo-image';
+import { StyleSheet, View } from 'react-native';
+
+import { BrandMark } from '@/components/brand-mark';
+import { ThemedText } from '@/components/themed-text';
+import { Fonts } from '@/constants/theme';
+import { jacketFor } from '@/lib/jacket';
+
+// A poster is laid out at its real pixel size — 1080 wide — and scaled down for the preview, so
+// what is captured off screen is the same component the reader was just looking at.
+
+export const POSTER_WIDTH = 1080;
+export const POSTER_SIZES = { post: 1350, story: 1920 } as const;
+export type PosterSize = keyof typeof POSTER_SIZES;
+export type PosterLayout = 'grid' | 'mosaic';
+export type PosterTheme = keyof typeof POSTER_THEMES;
+
+export const POSTER_THEMES = {
+  forest: { bg: '#163300', title: '#9FE870', sub: '#C3DDB1', quiet: '#9DB88B' },
+  lime: { bg: '#9FE870', title: '#163300', sub: '#2C5612', quiet: '#2C5612' },
+  mist: { bg: '#F4F6F1', title: '#163300', sub: '#56644F', quiet: '#56644F' },
+  ink: { bg: '#101310', title: '#FFFFFF', sub: '#B3BDAD', quiet: '#8E998A' }
+} as const;
+
+export type PosterBook = {
+  id: string;
+  title: string;
+  author: string;
+  thumbnail: string | null;
+};
+
+// How close a collage comes to filling the space left for it. Under-filling is wasted poster;
+// bleeding past the bottom is fine up to about a fifth, because a cropped bottom row reads as a
+// shelf continuing rather than as a mistake.
+const fillScore = (ratio: number) => (ratio <= 1 ? (1 - ratio) * 1.2 : ratio <= 1.2 ? (ratio - 1) * 2.5 : 9);
+
+const COVER_RATIO = 1.5;
+
+type Plan = { height: number; render: () => React.ReactNode };
+
+// Rows that always fill. Pick the row count that brings each tile closest to a cover's shape,
+// spread the books across those rows, and let every row span the full width — so the rectangle is
+// complete whatever the number of books, and covers crop a little rather than leaving gaps.
+function planGrid(books: PosterBook[], maxHeight: number): Plan {
+  const count = books.length;
+  let best = { rows: 1, tile: POSTER_WIDTH, height: POSTER_WIDTH * COVER_RATIO, score: Infinity };
+
+  for (let rows = 1; rows <= Math.min(count, 10); rows += 1) {
+    const columns = Math.ceil(count / rows);
+    const tile = POSTER_WIDTH / columns;
+    const height = rows * tile * COVER_RATIO;
+    const score = fillScore(height / maxHeight);
+    if (score < best.score) best = { rows, tile, height, score };
+  }
+
+  const { rows, tile, height } = best;
+  const base = Math.floor(count / rows);
+  const extra = count % rows;
+  const lines: PosterBook[][] = [];
+  let index = 0;
+  for (let row = 0; row < rows; row += 1) {
+    const size = base + (row < extra ? 1 : 0);
+    lines.push(books.slice(index, index + size));
+    index += size;
+  }
+
+  return {
+    height,
+    render: () => (
+      <View>
+        {lines.map((line, row) => (
+          <View key={row} style={{ flexDirection: 'row', height: tile * COVER_RATIO }}>
+            {line.map((book) => (
+              <View key={book.id} style={styles.cell}>
+                <Cover book={book} />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    )
+  };
+}
+
+// Two-by-two features with the rest packed around them, and never a hole: a feature eats four
+// cells, so books + three per feature has to divide by the column count exactly. Features sit in
+// fixed slots and everything else flows in finish order.
+function planMosaic(books: PosterBook[], maxHeight: number): Plan {
+  const count = books.length;
+  const want = count >= 14 ? 3 : count >= 8 ? 2 : count >= 4 ? 1 : 0;
+  let best: { columns: number; features: number; rows: number; slots: [number, number][]; height: number; score: number } | null =
+    null;
+
+  for (let columns = 2; columns <= 7; columns += 1) {
+    for (let features = 0; features <= Math.min(3, Math.floor(count / 3)); features += 1) {
+      if ((count + 3 * features) % columns) continue;
+      const rows = (count + 3 * features) / columns;
+      if (features > 0 && (columns < 3 || rows < 2)) continue;
+      const slots = featureSlots(columns, rows, features);
+      if (slots.length < features) continue;
+      const height = (rows * POSTER_WIDTH * COVER_RATIO) / columns;
+      const score = fillScore(height / maxHeight) + Math.abs(features - want) * 0.35 + (columns < 3 ? 1 : 0);
+      if (!best || score < best.score) best = { columns, features, rows, slots, height, score };
+    }
+  }
+
+  if (!best) return planGrid(books, maxHeight);
+
+  const { columns, features, rows, slots, height } = best;
+  const cell = POSTER_WIDTH / columns;
+
+  // React Native has no CSS grid, so the mosaic is placed absolutely on a grid worked out here.
+  // Features claim their 2×2 block first; the rest fill the remaining cells in order.
+  const taken = new Set<string>();
+  const placed: { book: PosterBook; left: number; top: number; width: number; height: number }[] = [];
+
+  slots.slice(0, features).forEach(([row, column], index) => {
+    for (let r = row; r < row + 2; r += 1) for (let c = column; c < column + 2; c += 1) taken.add(`${r}:${c}`);
+    placed.push({
+      book: books[index],
+      left: (column - 1) * cell,
+      top: (row - 1) * cell * COVER_RATIO,
+      width: cell * 2,
+      height: cell * 2 * COVER_RATIO
+    });
+  });
+
+  let next = features;
+  for (let row = 1; row <= rows && next < count; row += 1) {
+    for (let column = 1; column <= columns && next < count; column += 1) {
+      if (taken.has(`${row}:${column}`)) continue;
+      placed.push({
+        book: books[next],
+        left: (column - 1) * cell,
+        top: (row - 1) * cell * COVER_RATIO,
+        width: cell,
+        height: cell * COVER_RATIO
+      });
+      next += 1;
+    }
+  }
+
+  return {
+    height,
+    render: () => (
+      <View style={{ width: POSTER_WIDTH, height }}>
+        {placed.map((item) => (
+          <View
+            key={item.book.id}
+            style={{ position: 'absolute', left: item.left, top: item.top, width: item.width, height: item.height }}>
+            <Cover book={item.book} />
+          </View>
+        ))}
+      </View>
+    )
+  };
+}
+
+function featureSlots(columns: number, rows: number, count: number): [number, number][] {
+  const wanted: [number, number][] = [
+    [1, 1],
+    [3, columns - 1],
+    [5, 1],
+    [7, columns - 1]
+  ];
+  const out: [number, number][] = [];
+  for (const [row, column] of wanted) {
+    if (out.length >= count) break;
+    if (row + 1 <= rows && column >= 1 && column + 1 <= columns) out.push([row, column]);
+  }
+  return out;
+}
+
+// Covers crop to their cell rather than letterboxing: a poster is a packed rectangle, and a strip
+// of background between covers is the thing that makes it look assembled rather than printed.
+function Cover({ book }: { book: PosterBook }) {
+  if (book.thumbnail) {
+    return <Image source={book.thumbnail} style={styles.fill} contentFit="cover" />;
+  }
+
+  const { bg, fg, layout } = jacketFor(book.title);
+  const centred = layout === 2 || layout === 5;
+  const bottom = layout === 3 || layout === 4;
+
+  return (
+    <View
+      style={[
+        styles.fill,
+        styles.jacket,
+        { backgroundColor: bg },
+        centred && styles.jacketCentred,
+        bottom && styles.jacketBottom
+      ]}>
+      {layout === 4 ? (
+        <View style={[styles.orb, { backgroundColor: fg }]} />
+      ) : layout === 3 ? (
+        <View style={[styles.band, { backgroundColor: fg }]} />
+      ) : null}
+      <ThemedText
+        numberOfLines={5}
+        style={[styles.jacketTitle, { color: fg }, centred && styles.centredText]}>
+        {book.title}
+      </ThemedText>
+      <ThemedText numberOfLines={1} style={[styles.jacketAuthor, { color: fg }, centred && styles.centredText]}>
+        {book.author}
+      </ThemedText>
+    </View>
+  );
+}
+
+type PosterProps = {
+  books: PosterBook[];
+  title: string;
+  subtitle: string;
+  handle: string;
+  size: PosterSize;
+  layout: PosterLayout;
+  theme: PosterTheme;
+};
+
+export function Poster({ books, title, subtitle, handle, size, layout, theme }: PosterProps) {
+  const palette = POSTER_THEMES[theme];
+  const height = POSTER_SIZES[size];
+  const story = size === 'story';
+  // The collage takes the height its shape wants; whatever is left above it is the title block,
+  // which never goes below this.
+  const minHead = story ? 520 : 400;
+  const plan = (layout === 'grid' ? planGrid : planMosaic)(books, height - minHead);
+  const artHeight = Math.min(plan.height, height - minHead);
+  const headHeight = height - artHeight;
+  const titleSize = story ? (headHeight > 820 ? 184 : 150) : headHeight > 560 ? 160 : 132;
+
+  return (
+    <View style={{ width: POSTER_WIDTH, height, backgroundColor: palette.bg, overflow: 'hidden' }}>
+      <View style={[styles.head, story && styles.headStory, { height: headHeight }]}>
+        <View style={styles.headTop}>
+          <View style={styles.mark}>
+            <BrandMark size={44} />
+            <ThemedText style={[styles.markText, { color: palette.title }]}>BookMack</ThemedText>
+          </View>
+          {/* The address is the loop: whoever sees this poster can reach the shelf it came from. */}
+          <ThemedText style={[styles.handle, { color: palette.quiet }]}>{handle}</ThemedText>
+        </View>
+
+        <View>
+          <ThemedText style={[styles.title, { color: palette.title, fontSize: titleSize }]}>{title}</ThemedText>
+          <ThemedText style={[styles.subtitle, { color: palette.sub }]}>{subtitle}</ThemedText>
+        </View>
+      </View>
+
+      <View style={{ height: artHeight, overflow: 'hidden' }}>{plan.render()}</View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  cell: {
+    flex: 1,
+    minWidth: 0
+  },
+  fill: {
+    width: '100%',
+    height: '100%'
+  },
+  jacket: {
+    padding: '9%',
+    justifyContent: 'flex-start',
+    overflow: 'hidden'
+  },
+  jacketCentred: {
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  jacketBottom: {
+    justifyContent: 'flex-end'
+  },
+  centredText: {
+    textAlign: 'center'
+  },
+  jacketTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 34,
+    lineHeight: 37
+  },
+  jacketAuthor: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 20,
+    opacity: 0.8,
+    marginTop: 14
+  },
+  orb: {
+    position: 'absolute',
+    left: '-30%',
+    top: '-26%',
+    width: '120%',
+    aspectRatio: 1,
+    borderRadius: 9999,
+    opacity: 0.12
+  },
+  band: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: '46%',
+    opacity: 0.15
+  },
+  head: {
+    paddingHorizontal: 72,
+    paddingTop: 66,
+    paddingBottom: 54,
+    justifyContent: 'space-between'
+  },
+  headStory: {
+    paddingTop: 90,
+    paddingBottom: 70
+  },
+  headTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  mark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14
+  },
+  markText: {
+    fontFamily: Fonts.display,
+    fontSize: 31,
+    letterSpacing: -0.5
+  },
+  handle: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 27
+  },
+  title: {
+    fontFamily: Fonts.display,
+    letterSpacing: -4.5
+  },
+  subtitle: {
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 36,
+    marginTop: 20,
+    letterSpacing: -0.2
+  }
+});

@@ -223,6 +223,21 @@ export default function LibraryScreen() {
   // screen only needs to know which book to open it for, and to reload when it changes.
   const [pageBook, setPageBook] = useState<Book | null>(null);
 
+  // Choosing books for a poster. Null means not selecting at all — the mode only exists after a
+  // long press, which is the gesture Android people already use for this everywhere else.
+  const [picking, setPicking] = useState<Set<string> | null>(null);
+
+  const togglePick = (book: Book) => {
+    setPicking((current) => {
+      const next = new Set(current ?? []);
+      if (next.has(book.id)) next.delete(book.id);
+      else next.add(book.id);
+      return next;
+    });
+  };
+
+  const startPicking = (book: Book) => setPicking(new Set([book.id]));
+
   // The oldest pending request for a book, which is whoever has been waiting longest. /requests
   // comes back newest first, so the last match is the one to answer.
   const requestFor = (bookId: string) =>
@@ -305,7 +320,13 @@ export default function LibraryScreen() {
       <Drawer.Screen
         options={{
           header: ({ options, navigation }) =>
-            searchOpen ? (
+            // Selecting takes over the bar, the way it does in a gallery: a count, and a way out.
+            picking ? (
+              <AppBar
+                title={`${picking.size} selected`}
+                left={{ icon: 'close', label: 'Stop selecting', onPress: () => setPicking(null) }}
+              />
+            ) : searchOpen ? (
               <AppBar
                 left={{ icon: 'arrowLeft', label: 'Close search', onPress: closeSearch }}
                 right={[
@@ -398,7 +419,9 @@ export default function LibraryScreen() {
       ) : (
       <Bookshelf
         books={books}
-        onPressBook={setSelectedBook}
+        selected={picking}
+        onLongPressBook={startPicking}
+        onPressBook={picking ? togglePick : setSelectedBook}
         refreshing={loading === 'refresh'}
         onRefresh={() => load('refresh')}
         onEndReached={loadMore}
@@ -420,6 +443,20 @@ export default function LibraryScreen() {
         bottomInset={Spacing.four}
       />
       )}
+
+      {picking ? (
+        <View style={styles.pickBar}>
+          <Button
+            title={picking.size < 2 ? 'Pick at least two books' : `Make a poster of ${picking.size}`}
+            disabled={picking.size < 2}
+            onPress={() => {
+              const ids = [...picking].join(',');
+              setPicking(null);
+              router.push({ pathname: '/poster', params: { bookIds: ids } });
+            }}
+          />
+        </View>
+      ) : null}
 
       <BookDetailsSheet
         book={selectedBook}
@@ -468,6 +505,17 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
 }
 
 const styles = StyleSheet.create({
+  // Sits over the bottom bar while choosing, so the action is where the thumb already is.
+  pickBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: Spacing.three,
+    backgroundColor: Colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border
+  },
   container: {
     flex: 1
   },

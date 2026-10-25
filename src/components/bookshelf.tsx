@@ -4,6 +4,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, useWindowDimensions, V
 import type { Schemas } from '@/api/client';
 import { Badge, BOOK_STATUS_BADGES } from '@/components/badge';
 import { BookCover } from '@/components/book-cover';
+import { Icon } from '@/components/icon';
 import { ShelfSkeleton } from '@/components/skeleton';
 import { Colors, MaxContentWidth, Radius, Shadows, Spacing } from '@/constants/theme';
 
@@ -18,6 +19,11 @@ const MAX_COLUMNS = 6;
 type BookshelfProps = {
   books: Book[];
   onPressBook: (book: Book) => void;
+  // Selection for the poster maker. Absent means the shelf is an ordinary shelf — the whole
+  // gesture only exists once a long press has started it, which is how Android already works
+  // everywhere else, so there is nothing new to learn.
+  selected?: Set<string> | null;
+  onLongPressBook?: (book: Book) => void;
   refreshing: boolean;
   onRefresh: () => void;
   onEndReached: () => void;
@@ -36,6 +42,8 @@ const toRows = <T,>(items: T[], perRow: number): T[][] =>
 export function Bookshelf({
   books,
   onPressBook,
+  selected = null,
+  onLongPressBook,
   refreshing,
   onRefresh,
   onEndReached,
@@ -68,17 +76,30 @@ export function Bookshelf({
           <View style={[styles.books, { gap: COVER_GAP }]}>
             {row.map((book) => {
               const badge = book.status === 'Available' ? null : BOOK_STATUS_BADGES[book.status];
-              return (
-                <Pressable
-                  key={book.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${book.title} by ${book.author}${badge ? `, ${badge.label}` : ''}`}
-                  onPress={() => onPressBook(book)}
-                  style={({ pressed }) => [styles.book, pressed && styles.pressed]}>
-                  <BookCover title={book.title} thumbnail={book.thumbnail} size={coverWidth} />
-                  {badge ? <Badge label={badge.label} tone={badge.tone} style={styles.coverBadge} /> : null}
-                </Pressable>
-              );
+                const picked = selected?.has(book.id) ?? false;
+                const selecting = selected !== null;
+                return (
+                  <Pressable
+                    key={book.id}
+                    accessibilityRole={selecting ? 'checkbox' : 'button'}
+                    accessibilityState={selecting ? { checked: picked } : undefined}
+                    accessibilityLabel={`${book.title} by ${book.author}${badge ? `, ${badge.label}` : ''}`}
+                    onPress={() => onPressBook(book)}
+                    onLongPress={onLongPressBook ? () => onLongPressBook(book) : undefined}
+                    style={({ pressed }) => [styles.book, pressed && styles.pressed]}>
+                    <View style={selecting && !picked ? styles.unpicked : undefined}>
+                      <BookCover title={book.title} thumbnail={book.thumbnail} size={coverWidth} />
+                    </View>
+                    {badge && !selecting ? (
+                      <Badge label={badge.label} tone={badge.tone} style={styles.coverBadge} />
+                    ) : null}
+                    {picked ? (
+                      <View style={styles.tick}>
+                        <Icon name="check" color={Colors.text} size={13} strokeWidth={3.2} />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
             })}
           </View>
           <View style={styles.ledge} />
@@ -123,6 +144,24 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Spacing.one,
     right: Spacing.one
+  },
+  // Unpicked books dim rather than disappear: the shelf stays readable, so you can see what you
+  // are choosing between.
+  unpicked: {
+    opacity: 0.45
+  },
+  tick: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.accent,
+    borderWidth: 2,
+    borderColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   ledge: {
     height: 10,
