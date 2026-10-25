@@ -1,5 +1,5 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
 
@@ -33,7 +33,6 @@ type ActivityDay = Schemas['ActivityDay'];
 
 const WEEKS = 53;
 const RIBBON_HEIGHT = 64;
-const BAR_SLOT = 10;
 const MONTH_LETTERS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -63,6 +62,11 @@ export default function StatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [range, setRange] = useState<Range>('year');
   const [shelfWidth, setShelfWidth] = useState(0);
+  const [ribbonWidth, setRibbonWidth] = useState(0);
+  // The drawer layout renders one AppBar for every screen. This screen needs the range toggle in
+  // it, so it hands the layout a header rather than drawing a second bar underneath the first —
+  // which is exactly what made the page start halfway down.
+  const navigation = useNavigation();
 
   const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'refresh') setRefreshing(true);
@@ -95,6 +99,26 @@ export default function StatsScreen() {
     }, [load])
   );
 
+  useEffect(() => {
+    // The plain action rather than DrawerActions.openDrawer(): @react-navigation/native is a
+    // transitive dependency here, and importing from a package this app never declared is how a
+    // working build breaks on someone else's install.
+    const openDrawer = () => navigation.dispatch({ type: 'OPEN_DRAWER' });
+
+    navigation.setOptions({
+      header: () => (
+        <AppBar left={{ icon: 'menu', label: 'Open menu', onPress: openDrawer }}>
+          <View style={styles.barRow}>
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.barTitle}>
+              Stats
+            </ThemedText>
+            <SegmentedControl accessibilityLabel="Range" options={RANGES} value={range} onChange={setRange} />
+          </View>
+        </AppBar>
+      )
+    });
+  }, [navigation, range]);
+
   const weeks = useMemo(() => buildWeeks(data?.activity ?? [], data?.shelf.year, data?.at), [data]);
   const monthPages = useMemo(() => {
     const totals = Array<number>(12).fill(0);
@@ -107,7 +131,6 @@ export default function StatsScreen() {
   if (!data) {
     return (
       <ThemedView style={styles.screen}>
-        <AppBar title="Stats" />
         <View style={styles.loading}>
           {error ? <FieldError message={error} /> : <Skeleton width="100%" height={320} radius={Radius.card} />}
         </View>
@@ -124,6 +147,15 @@ export default function StatsScreen() {
   const daysIn = Math.max(1, Math.round((data.at - Date.UTC(shelf.year, 0, 1)) / 86400000));
   const perDay = thisYear && pages ? Math.round(pages / daysIn) : null;
 
+  // Where each month starts in the ribbon and how many weeks it owns, so its letter can sit over
+  // its own bars.
+  const monthSpans: { month: number; start: number; weeks: number }[] = [];
+  weeks.forEach((week, index) => {
+    const last = monthSpans[monthSpans.length - 1];
+    if (last && last.month === week.month) last.weeks += 1;
+    else monthSpans.push({ month: week.month, start: index, weeks: 1 });
+  });
+
   const bestMonth = monthPages.indexOf(Math.max(...monthPages));
   const hasMonths = monthPages[bestMonth] > 0;
   const peak = Math.max(...weeks.map((week) => week.pages), 1);
@@ -133,15 +165,6 @@ export default function StatsScreen() {
 
   return (
     <ThemedView style={styles.screen}>
-      <AppBar>
-        <View style={styles.barRow}>
-          <ThemedText type="subtitle" accessibilityRole="header" style={styles.barTitle}>
-            Stats
-          </ThemedText>
-          <SegmentedControl accessibilityLabel="Range" options={RANGES} value={range} onChange={setRange} />
-        </View>
-      </AppBar>
-
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -234,32 +257,53 @@ export default function StatsScreen() {
               Your best month was <Em>{MONTH_NAMES[bestMonth]}</Em>, with {monthPages[bestMonth].toLocaleString()}{' '}
               pages.
             </Sentence>
-            <View style={styles.ribbon}>
-              <Svg width="100%" height={RIBBON_HEIGHT} viewBox={`0 0 ${weeks.length * BAR_SLOT} ${RIBBON_HEIGHT}`}>
-                {weeks.map((week, index) => {
-                  const height = week.pages ? Math.max(2, (week.pages / peak) * (RIBBON_HEIGHT - 4)) : 0;
-                  return (
-                    <Rect
-                      key={index}
-                      x={index * BAR_SLOT + 1}
-                      y={RIBBON_HEIGHT - height}
-                      width={BAR_SLOT - 2.5}
-                      height={height}
-                      rx={1.5}
-                      // One month is coloured because it is the story. Colouring all twelve would
-                      // say nothing at all.
-                      fill={week.month === bestMonth ? Colors.brand : '#C9D6C0'}
-                    />
-                  );
-                })}
-              </Svg>
-              <View style={styles.months}>
-                {MONTH_LETTERS.map((letter, index) => (
-                  <ThemedText key={index} type="caption" themeColor="textSecondary" style={styles.month}>
-                    {letter}
-                  </ThemedText>
-                ))}
-              </View>
+            <View
+              style={styles.ribbon}
+              onLayout={(event) => setRibbonWidth(event.nativeEvent.layout.width)}>
+              {ribbonWidth > 0 ? (
+                <>
+                  {/* Drawn in real pixels against the measured width. It used to be a viewBox at
+                      width="100%", which with the default preserveAspectRatio letterboxes rather
+                      than fills — the bars ended up small and floating in the middle of the box. */}
+                  <Svg width={ribbonWidth} height={RIBBON_HEIGHT}>
+                    {weeks.map((week, index) => {
+                      const slot = ribbonWidth / weeks.length;
+                      const height = week.pages ? Math.max(2, (week.pages / peak) * (RIBBON_HEIGHT - 4)) : 0;
+                      return (
+                        <Rect
+                          key={index}
+                          x={index * slot + slot * 0.12}
+                          y={RIBBON_HEIGHT - height}
+                          width={Math.max(1.5, slot * 0.76)}
+                          height={height}
+                          rx={1.5}
+                          // One month is coloured because it is the story. Colouring all twelve
+                          // would say nothing at all.
+                          fill={week.month === bestMonth ? Colors.brand : '#C9D6C0'}
+                        />
+                      );
+                    })}
+                  </Svg>
+
+                  {/* A letter sits over the middle of its own weeks, so it points at its bars.
+                      Twelve evenly-spaced letters under a ribbon that stops in October lined up
+                      with nothing. */}
+                  <View style={styles.months}>
+                    {monthSpans.map((span) => (
+                      <ThemedText
+                        key={span.month}
+                        type="caption"
+                        themeColor="textSecondary"
+                        style={[
+                          styles.month,
+                          { left: (span.start + span.weeks / 2) * (ribbonWidth / weeks.length) - 6 }
+                        ]}>
+                        {MONTH_LETTERS[span.month]}
+                      </ThemedText>
+                    ))}
+                  </View>
+                </>
+              ) : null}
             </View>
           </Section>
         ) : null}
@@ -629,11 +673,12 @@ const styles = StyleSheet.create({
     marginTop: Spacing.three
   },
   months: {
-    flexDirection: 'row',
+    height: 18,
     marginTop: Spacing.one
   },
   month: {
-    flex: 1,
+    position: 'absolute',
+    width: 12,
     textAlign: 'center'
   },
 

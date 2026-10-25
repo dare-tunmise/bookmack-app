@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, type Schemas } from '@/api/client';
 import { useSession } from '@/auth/session';
-import { BrandMark } from '@/components/brand-mark';
+import { PlanBadge } from '@/components/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Icon, type IconName } from '@/components/icon';
 import { usePendingRequests } from '@/components/pending-requests';
@@ -95,12 +95,13 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
           api.GET('/loans', { params: { query: { status: 'overdue', limit: 50 } } })
         ]);
         if (cancelled) return;
-        // Whoever is holding something, busiest first. The rest are not shown at all: a sidebar
-        // is not the borrower list, it is a shortcut to the people currently involved.
+        // The people you lend to, which is what the design lists — not only whoever happens to be
+        // holding something today. Filtering to active loans left one name in the panel and made
+        // it look broken. Busiest first so the ones you are most likely to want are at the top.
         setPeople(
           (borrowers.data?.data ?? [])
-            .filter((borrower) => borrower.loans.active > 0)
-            .sort((a, b) => b.loans.active - a.loans.active)
+            .slice()
+            .sort((a, b) => b.loans.active - a.loans.active || b.loans.total - a.loans.total)
         );
         setOverdueBy(
           new Set((overdue.data?.data ?? []).map((loan) => loan.borrower?.id).filter(Boolean) as string[])
@@ -131,22 +132,26 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
   return (
     // The panel runs to the screen edge, so its own footer has to clear the gesture area itself.
     <View style={[styles.container, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 12 }]}>
-      <View style={styles.head}>
-        <BrandMark size={34} />
-        <ThemedText style={styles.wordmark}>BookMack</ThemedText>
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Search your books"
-        onPress={() => {
-          navigation.closeDrawer();
-          router.push('/search');
-        }}
-        style={({ pressed }) => [styles.search, pressed && styles.pressed]}>
-        <Icon name="search" color={Colors.textSecondary} size={20} />
-        <ThemedText style={styles.searchText}>Search</ThemedText>
-      </Pressable>
+      {user ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Account and settings"
+          onPress={() => goTo('account')}
+          style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
+          <Image
+            source={dicebearUrl('notionists', user.name, '9fe870')}
+            style={styles.avatar}
+            accessibilityLabel={user.name}
+          />
+          <View style={styles.who}>
+            <ThemedText style={styles.name}>{user.name}</ThemedText>
+            <ThemedText style={styles.email} numberOfLines={1}>
+              {user.email}
+            </ThemedText>
+            <PlanBadge plan={user.plan} style={styles.planBadge} />
+          </View>
+        </Pressable>
+      ) : null}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <Eyebrow>Your library</Eyebrow>
@@ -211,11 +216,14 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
 
             {people.slice(0, PEOPLE_SHOWN).map((person) => {
               const late = overdueBy.has(person.id);
+              const holding = person.loans.active > 0;
               return (
                 <Pressable
                   key={person.id}
                   accessibilityRole="button"
-                  accessibilityLabel={`${person.name}, ${late ? 'has an overdue book' : `has ${person.loans.active}`}`}
+                  accessibilityLabel={`${person.name}, ${
+                    late ? 'has an overdue book' : holding ? `has ${person.loans.active}` : 'has nothing out'
+                  }`}
                   onPress={() => {
                     navigation.closeDrawer();
                     router.push({ pathname: '/borrower', params: { id: person.id } });
@@ -229,13 +237,24 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
                     />
                     {/* Green holds a book, red is past its due date. The one dot says which of the
                         two things you might act on is true. */}
-                    <View style={[styles.dot, { backgroundColor: late ? Colors.danger : '#3E9B27' }]} />
+                    <View
+                      style={[
+                        styles.dot,
+                        { backgroundColor: late ? Colors.danger : holding ? '#3E9B27' : Colors.border }
+                      ]}
+                    />
                   </View>
                   <ThemedText style={styles.personName} numberOfLines={1}>
                     {person.name}
                   </ThemedText>
                   <ThemedText style={styles.personStatus}>
-                    {late ? 'Overdue' : person.loans.active === 1 ? 'Has a book' : `Has ${person.loans.active}`}
+                    {late
+                      ? 'Overdue'
+                      : person.loans.active === 0
+                        ? 'Nothing out'
+                        : person.loans.active === 1
+                          ? 'Has a book'
+                          : `Has ${person.loans.active}`}
                   </ThemedText>
                 </Pressable>
               );
@@ -246,29 +265,6 @@ export function AppDrawerContent({ state, navigation }: DrawerContentComponentPr
         <View style={styles.rule} />
         <Row icon="logOut" label="Sign out" active={false} danger onPress={() => setConfirmingSignOut(true)} />
       </ScrollView>
-
-      {user ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Account and settings"
-          onPress={() => goTo('account')}
-          style={({ pressed }) => [styles.me, pressed && styles.pressed]}>
-          <Image
-            source={dicebearUrl('notionists', user.name, '9fe870')}
-            style={styles.meAvatar}
-            accessibilityLabel={user.name}
-          />
-          <View style={styles.meWho}>
-            <ThemedText style={styles.meName} numberOfLines={1}>
-              {user.name}
-            </ThemedText>
-            <ThemedText style={styles.mePlan}>
-              {user.plan === 'premium' ? 'PREMIUM PLAN' : 'BASIC PLAN'}
-            </ThemedText>
-          </View>
-          <Icon name="chevronRight" color={Colors.textSecondary} size={16} />
-        </Pressable>
-      ) : null}
 
       <ThemedText style={styles.version}>{`v${Constants.expoConfig?.version ?? ''}`}</ThemedText>
 
@@ -361,36 +357,43 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     paddingHorizontal: 16
   },
+  // The account, back at the top where it was: avatar, name, address, plan. It reads as "whose
+  // library this is" there, which is what a drawer header is for.
   head: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: 14,
     paddingHorizontal: 6,
-    paddingBottom: 18
+    paddingBottom: 18,
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border
   },
-  wordmark: {
-    fontFamily: Fonts.display,
-    fontSize: 19,
-    lineHeight: 24,
-    letterSpacing: -0.3,
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.accent
+  },
+  who: {
+    flex: 1,
+    minWidth: 0
+  },
+  name: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 16,
+    lineHeight: 22,
     color: Colors.text
   },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    height: 46,
-    paddingHorizontal: 13,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: 14
-  },
-  searchText: {
-    flex: 1,
+  email: {
     fontFamily: Fonts.body,
-    fontSize: 14.5,
+    fontSize: 13,
+    lineHeight: 18,
     color: Colors.textSecondary
+  },
+  planBadge: {
+    marginTop: 4,
+    alignSelf: 'flex-start'
   },
   scroll: {
     paddingBottom: 12
@@ -527,37 +530,6 @@ const styles = StyleSheet.create({
   personStatus: {
     fontFamily: Fonts.bodySemiBold,
     fontSize: 11.5,
-    color: Colors.textSecondary
-  },
-  me: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 9,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.border
-  },
-  meAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.accent
-  },
-  meWho: {
-    flex: 1,
-    minWidth: 0
-  },
-  meName: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: Colors.text
-  },
-  mePlan: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 11,
-    letterSpacing: 1.1,
     color: Colors.textSecondary
   },
   version: {

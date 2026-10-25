@@ -148,9 +148,11 @@ export default function PosterScreen() {
     setBusy('save');
     setError(null);
     try {
-      // Asked for only when someone actually saves, not on the way into the screen: a permission
-      // prompt before anyone has made anything is how permissions get denied.
-      const permission = await MediaLibrary.requestPermissionsAsync();
+      // writeOnly. Without the argument this asks for access to every kind of media on the
+      // device — the prompt named audio and music, for an app that only ever adds one picture.
+      // Asked at the moment of saving, not on the way into the screen: a permission prompt
+      // before anyone has made anything is how permissions get denied.
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
       if (!permission.granted) throw new Error('BookMack needs permission to save to your photos.');
       const uri = await capture();
       if (!uri) throw new Error('The poster could not be rendered.');
@@ -202,20 +204,37 @@ export default function PosterScreen() {
       <View
         style={styles.preview}
         onLayout={(event) => {
-          setPreviewWidth(event.nativeEvent.layout.width - Spacing.five);
-          setPreviewHeight(event.nativeEvent.layout.height - Spacing.three);
+          // Inside the padding, so a full-width poster still clears the edges.
+          setPreviewWidth(event.nativeEvent.layout.width - Spacing.two * 2);
+          setPreviewHeight(event.nativeEvent.layout.height - Spacing.two * 2);
         }}>
         {loading ? (
           <ActivityIndicator color={Colors.brand} />
         ) : current.length >= MIN_BOOKS && scale > 0 ? (
+          // Two boxes on purpose. The outer one is the poster's real size on screen and is what
+          // the layout sees; the inner one is the poster at its true 1080 width, scaled down and
+          // pulled back so its top-left lands in the corner. React Native scales about the centre,
+          // so without that correction the poster sits offset inside a box the size of the scaled
+          // version and gets clipped. This replaces a `transformOrigin: 'top left'` that the
+          // layout should not have been depending on.
           <View
             style={{
               width: POSTER_WIDTH * scale,
               height: POSTER_SIZES[size] * scale,
-              borderRadius: 8,
-              overflow: 'hidden'
+              borderRadius: 10,
+              overflow: 'hidden',
+              backgroundColor: POSTER_THEMES[theme].bg
             }}>
-            <View style={{ transform: [{ scale }], transformOrigin: 'top left' }}>
+            <View
+              style={{
+                width: POSTER_WIDTH,
+                height: POSTER_SIZES[size],
+                transform: [
+                  { translateX: -(POSTER_WIDTH * (1 - scale)) / 2 },
+                  { translateY: -(POSTER_SIZES[size] * (1 - scale)) / 2 },
+                  { scale }
+                ]
+              }}>
               <Poster {...posterProps} />
             </View>
           </View>
@@ -223,15 +242,18 @@ export default function PosterScreen() {
           <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
             {error
               ? 'Something went wrong loading your books.'
-              : `Finish a couple of books and your year becomes a poster.`}
+              : 'Finish a couple of books and your year becomes a poster.'}
           </ThemedText>
         )}
       </View>
 
-      {/* Off screen at full size, and only while something is actually being captured — a
-          1080-wide view with every cover in it is not worth keeping mounted otherwise. */}
-      {busy ? (
-        <View style={styles.offscreen} pointerEvents="none">
+      {/* Mounted whenever there is a poster to capture, not only while saving.
+          It used to mount on `busy`, and captureRef ran in the same tick — the view had not been
+          laid out yet, shotRef.current was null, and every Save and Share failed with "the poster
+          could not be rendered". It is off screen and inert, so the cost is laying out views that
+          are already being laid out for the preview. */}
+      {current.length >= MIN_BOOKS ? (
+        <View style={styles.offscreen} pointerEvents="none" collapsable={false}>
           <View ref={shotRef} collapsable={false}>
             <Poster {...posterProps} />
           </View>
@@ -399,8 +421,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.three,
-    paddingBottom: Spacing.two
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.two
   },
   emptyText: {
     textAlign: 'center',
