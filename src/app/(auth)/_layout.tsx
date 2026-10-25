@@ -8,7 +8,7 @@ import { AuthShelf, type ShelfStep } from '@/components/auth-shelf';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 
-import { ShelfStepContext } from './shelf-step';
+import { ShelfCelebrateContext, ShelfStepContext } from './shelf-step';
 
 // Everything a signed-out person sees, with one shelf mounted above all of it.
 //
@@ -24,10 +24,12 @@ export default function AuthLayout() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const [step, setStep] = useState<ShelfStep>(-1);
+  // Set by the screen that has just finished verifying, so the shelf comes home for it.
+  const [celebrating, setCelebrating] = useState(false);
 
   const signedIn = status === 'signedIn';
   const unverified = signedIn && !user?.isVerified;
-  const hero = HERO_ROUTES.includes(pathname);
+  const hero = HERO_ROUTES.includes(pathname) || celebrating;
 
   // Memoised: the shelf's loop holds this across its whole run, and a new function on every
   // render would restart the effect that drives it.
@@ -39,9 +41,15 @@ export default function AuthLayout() {
       <View style={[styles.glow, !hero && styles.glowQuiet]} pointerEvents="none" />
 
       <View style={[styles.shelfLayer, { paddingTop: insets.top }]} pointerEvents="none">
-        <AuthShelf mode={hero ? 'hero' : 'compact'} animate={hero} onStep={onStep} />
+        <AuthShelf
+          mode={hero ? 'hero' : 'compact'}
+          animate={hero && !celebrating}
+          onStep={onStep}
+          cheer={celebrating}
+        />
       </View>
 
+      <ShelfCelebrateContext value={setCelebrating}>
       <ShelfStepContext value={step}>
         <Stack screenOptions={{ headerShown: false, contentStyle: styles.transparent, animation: 'fade' }}>
           {/* Verifying is its own state: signed in, but nothing in the app is reachable yet. */}
@@ -57,6 +65,7 @@ export default function AuthLayout() {
           </Stack.Protected>
         </Stack>
       </ShelfStepContext>
+      </ShelfCelebrateContext>
     </ThemedView>
   );
 }

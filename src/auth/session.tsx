@@ -17,7 +17,9 @@ type SessionState =
 type SessionContextValue = SessionState & {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
-  verifyEmail: (code: string) => Promise<void>;
+  // Resolves with the now-verified profile. It does NOT sign you in — call adoptVerified.
+  verifyEmail: (code: string) => Promise<Schemas['Profile']>;
+  adoptVerified: (user: Schemas['Profile']) => void;
   resendVerification: () => Promise<void>;
   signOut: () => Promise<void>;
   // Replace the signed-in user's profile after an update (name, email, settings).
@@ -83,10 +85,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
     await startSession(data.data);
   }, [startSession]);
 
+  // Split in two on purpose. The server agreeing and the app switching are different moments,
+  // and the screen needs a beat between them to show that it worked — the navigator swaps the
+  // whole signed-out stack out the instant `isVerified` turns true, taking any celebration with
+  // it. `verifyEmail` confirms; `adoptVerified` hands the state over when the screen is ready.
   const verifyEmail = useCallback(async (code: string) => {
     const { data, error } = await api.POST('/auth/verify-email', { body: { code } });
     if (!data) throw toApiError(error);
-    setState({ status: 'signedIn', user: data.data });
+    return data.data;
+  }, []);
+
+  const adoptVerified = useCallback((user: Schemas['Profile']) => {
+    setState({ status: 'signedIn', user });
   }, []);
 
   const resendVerification = useCallback(async () => {
@@ -113,8 +123,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ ...state, signIn, signUp, verifyEmail, resendVerification, signOut, updateUser }),
-    [state, signIn, signUp, verifyEmail, resendVerification, signOut, updateUser]
+    () => ({ ...state, signIn, signUp, verifyEmail, adoptVerified, resendVerification, signOut, updateUser }),
+    [state, signIn, signUp, verifyEmail, adoptVerified, resendVerification, signOut, updateUser]
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;
