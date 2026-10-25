@@ -12,6 +12,7 @@ import { StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SessionProvider, useSession } from '@/auth/session';
+import { AuthShelfLayer } from '@/components/auth-shelf-layer';
 import { PlanLimitProvider } from '@/components/plan-limit-sheet';
 import { SnackbarProvider } from '@/components/snackbar';
 import { Colors } from '@/constants/theme';
@@ -63,6 +64,10 @@ export default function RootLayout() {
   );
 }
 
+// The signed-out screens sit on the shelf layer's own background rather than painting their
+// own, and cross-fade instead of sliding, so the shelf is the only thing that appears to move.
+const SHELF_SCREEN = { contentStyle: { backgroundColor: 'transparent' }, animation: 'fade' } as const;
+
 // Screens are grouped by session state. When the state changes (sign in, verify, sign out),
 // Stack.Protected removes the screens that no longer apply and redirects to one that does.
 function RootNavigator() {
@@ -77,18 +82,29 @@ function RootNavigator() {
   const signedIn = session.status === 'signedIn';
   const verified = signedIn && session.user.isVerified;
 
+  // One shelf, mounted above the whole signed-out stack, so it survives every route change
+  // between these screens — which is the entire point of it. The signed-out screens are
+  // transparent so the shelf and its glow show through; the app's own screens keep their
+  // backgrounds and get no shelf at all.
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Protected guard={verified}>
-        <Stack.Screen name="(app)" />
-      </Stack.Protected>
+    <AuthShelfLayer active={!verified}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Protected guard={verified}>
+          <Stack.Screen name="(app)" />
+        </Stack.Protected>
 
-      {/* Signed out and signed-in-but-unverified share one group, because they share one shelf:
-          it is mounted in that group's layout and has to survive every route change between
-          these screens. The two states are told apart inside it. */}
-      <Stack.Protected guard={!verified}>
-        <Stack.Screen name="(auth)" />
-      </Stack.Protected>
-    </Stack>
+        <Stack.Protected guard={signedIn && !verified}>
+          <Stack.Screen name="verify-email" options={SHELF_SCREEN} />
+        </Stack.Protected>
+
+        {/* Welcome comes first: signed-out users are redirected to the first screen they can see. */}
+        <Stack.Protected guard={!signedIn}>
+          <Stack.Screen name="welcome" options={SHELF_SCREEN} />
+          <Stack.Screen name="sign-in" options={SHELF_SCREEN} />
+          <Stack.Screen name="sign-up" options={SHELF_SCREEN} />
+          <Stack.Screen name="forgot-password" options={SHELF_SCREEN} />
+        </Stack.Protected>
+      </Stack>
+    </AuthShelfLayer>
   );
 }

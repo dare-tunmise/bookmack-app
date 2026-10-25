@@ -31,7 +31,11 @@ export const SHELF_HEIGHT = 200;
 const HERO = { x: 46, y: 124, scale: 1 };
 const COMPACT = { x: 160, y: 42, scale: 0.32 };
 
-const GLIDE = { duration: 700, easing: undefined } as const;
+// No `easing` key at all. Reanimated merges this over its own defaults, so spelling it out as
+// `easing: undefined` replaced the default easing function with undefined and the UI thread then
+// called undefined(progress) on every frame — the screen went white, and Android took the app
+// down with it. That was the blank screen on Create account.
+const GLIDE = { duration: 700 } as const;
 const SPRING = { damping: 14, stiffness: 170 } as const;
 
 // width, height, spine, text, title
@@ -75,9 +79,12 @@ export function AuthShelf({ mode, animate = false, onStep, cheer = false }: Auth
   const chip = useSharedValue(0);
   const hop = useSharedValue(0);
 
-  travel.value = reduced
-    ? withTiming(mode === 'hero' ? 0 : 1, { duration: 150 })
-    : withTiming(mode === 'hero' ? 0 : 1, GLIDE);
+  // In an effect, not in the render body: assigning to a shared value while rendering starts an
+  // animation as a side effect of a render that may yet be thrown away.
+  useEffect(() => {
+    const to = mode === 'hero' ? 0 : 1;
+    travel.value = reduced ? withTiming(to, { duration: 150 }) : withTiming(to, GLIDE);
+  }, [mode, reduced, travel]);
 
   // The loop. Driven by one timeout chain rather than per-spine animations, so stopping it is
   // stopping one thing — a loop that keeps running behind a form is a loop that drains a battery
