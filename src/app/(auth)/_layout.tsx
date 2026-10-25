@@ -8,7 +8,7 @@ import { AuthShelf, type ShelfStep } from '@/components/auth-shelf';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 
-import { ShelfCelebrateContext, ShelfStepContext } from './shelf-step';
+import { ShelfCelebrateContext, ShelfStepContext } from '@/components/shelf-context';
 
 // Everything a signed-out person sees, with one shelf mounted above all of it.
 //

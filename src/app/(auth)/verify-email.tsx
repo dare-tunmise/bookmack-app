@@ -13,7 +13,7 @@ import { CodeField } from '@/components/code-field';
 import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 
-import { useShelfCelebrate } from './shelf-step';
+import { useShelfCelebrate } from '@/components/shelf-context';
 import { Colors, Fonts } from '@/constants/theme';
 
 const CODE_LENGTH = 6;

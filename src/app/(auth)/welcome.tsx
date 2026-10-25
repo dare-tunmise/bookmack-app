@@ -9,7 +9,7 @@ import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Fonts, Spacing } from '@/constants/theme';
 
-import { useShelfStep } from './shelf-step';
+import { useShelfStep } from '@/components/shelf-context';
 
 // The first screen, and the shelf above it does the explaining.
 //
