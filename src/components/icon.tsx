@@ -13,7 +13,9 @@ import { BasketIcon } from 'phosphor-react-native/src/icons/Basket';
 import { BellIcon } from 'phosphor-react-native/src/icons/Bell';
 import { BookOpenIcon } from 'phosphor-react-native/src/icons/BookOpen';
 import { BooksIcon } from 'phosphor-react-native/src/icons/Books';
+import { CaretDownIcon } from 'phosphor-react-native/src/icons/CaretDown';
 import { CaretRightIcon } from 'phosphor-react-native/src/icons/CaretRight';
+import { CaretUpIcon } from 'phosphor-react-native/src/icons/CaretUp';
 import { ChartPieSliceIcon } from 'phosphor-react-native/src/icons/ChartPieSlice';
 import { CheckIcon } from 'phosphor-react-native/src/icons/Check';
 import { ClockIcon } from 'phosphor-react-native/src/icons/Clock';
@@ -91,6 +93,9 @@ const ICONS = {
   bell: BellIcon,
   settings: GearIcon,
   chevronRight: CaretRightIcon,
+  // The sidebar's Library group, which opens its own tabs in place.
+  chevronDown: CaretDownIcon,
+  chevronUp: CaretUpIcon,
   // A pie with one slice lifted clear — which is what the Stats screen leads with.
   stats: ChartPieSliceIcon,
   clock: ClockIcon,

@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Drawer } from 'expo-router/drawer';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -51,6 +51,12 @@ const TAB_QUERIES = {
 
 export default function LibraryScreen() {
   const [tab, setTab] = useState<LibraryTab>('recent');
+  // The sidebar's Library tree opens a tab by route param. Held as state and compared during
+  // render — React's own "adjust state when a prop changes" pattern — rather than in an effect:
+  // an effect would render the old tab first and then correct it, which is a visible flash of
+  // the wrong shelf.
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const [lastTabParam, setLastTabParam] = useState<string | undefined>(undefined);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [query, setQuery] = useState('');
@@ -237,6 +243,13 @@ export default function LibraryScreen() {
   };
 
   const startPicking = (book: Book) => setPicking(new Set([book.id]));
+
+  if (tabParam !== lastTabParam) {
+    setLastTabParam(tabParam);
+    if (tabParam && tabParam !== tab && LIBRARY_TABS.some((entry) => entry.key === tabParam)) {
+      changeTab(tabParam as LibraryTab);
+    }
+  }
 
   // The oldest pending request for a book, which is whoever has been waiting longest. /requests
   // comes back newest first, so the last match is the one to answer.
