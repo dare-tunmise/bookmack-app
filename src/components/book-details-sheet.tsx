@@ -27,14 +27,6 @@ type Book = Schemas['Book'];
 type Loan = Schemas['Loan'];
 type ReadingStatus = Book['readingStatus'];
 
-// What the summary row says for each state. The controls themselves live in the reading sheet.
-const READING_LABELS: Record<ReadingStatus, string> = {
-  unread: 'Not started',
-  reading: 'Reading',
-  read: 'Read',
-  abandoned: 'Gave up',
-  rereading: 'Reading again'
-};
 
 
 // Publishers sometimes fill the description field with the book's reviews rather than a description.
@@ -64,6 +56,9 @@ type BookDetailsSheetProps = {
   // Returns 0 when the counts have not loaded, which reads as "not yet known" and leaves the chip a
   // plain label rather than a link that might go nowhere.
   countForTheme?: (theme: string) => number;
+  // Open another book's panel from inside this one — "more like this" is a dead end otherwise.
+  // Optional: a sheet opened somewhere that cannot swap books shows the rows as plain rows.
+  onOpenBook?: (book: Book) => void;
 };
 
 export function BookDetailsSheet({
@@ -72,7 +67,8 @@ export function BookDetailsSheet({
   onChanged,
   onDeleted,
   onFilterByTheme,
-  countForTheme
+  countForTheme,
+  onOpenBook
 }: BookDetailsSheetProps) {
   // Keep showing the last book while the sheet slides closed.
   const [shownBook, setShownBook] = useState(book);
@@ -90,6 +86,7 @@ export function BookDetailsSheet({
           onDeleted={onDeleted}
           onFilterByTheme={onFilterByTheme}
           countForTheme={countForTheme}
+          onOpenBook={onOpenBook}
         />
       ) : null}
     </BottomSheet>
@@ -98,7 +95,15 @@ export function BookDetailsSheet({
 
 type BookDetailsProps = Omit<BookDetailsSheetProps, 'book'> & { book: Book };
 
-function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, countForTheme }: BookDetailsProps) {
+function BookDetails({
+  book,
+  onClose,
+  onChanged,
+  onDeleted,
+  onFilterByTheme,
+  countForTheme,
+  onOpenBook
+}: BookDetailsProps) {
   const onLoan = book.status === 'Loaned';
   // undefined while the open loan of a book on loan is loading.
   const [loan, setLoan] = useState<Loan | null | undefined>(undefined);
@@ -365,42 +370,45 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
         <StarRating label="Your rating" value={rating} onChange={rate} />
       </View>
 
-      {/* Where the book is up to, and the one action that follows from it.
-          A book being read leads with Update page; one that is not leads with Start reading, which
-          puts it on page 1 in a single tap. Stop reading is deliberately quiet text rather than a
-          button: it is rare, and it is not what anyone came here to do. */}
-      <View style={styles.readingBlock}>
-        <View style={styles.readingTop}>
-          <ThemedText type="caption" style={styles.readingState}>
-            {isReading ? READING_LABELS[book.readingStatus] : book.readingStatus === 'read' ? 'Read' : 'Not started'}
-          </ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">
-            {isReading && lastRead ? `Last read ${lastRead}` : total ? `${total} pages` : ''}
-          </ThemedText>
-        </View>
+      {/* Only while a book is actually being read. "Not started" is not news about a book — it is
+          the absence of news, and a panel saying so is a row of furniture on every book you have
+          not picked up. The action below says what to do instead. */}
+      {isReading ? (
+        <View style={styles.readingBlock}>
+          <View style={styles.readingTop}>
+            <ThemedText type="caption" style={styles.readingState}>
+              {book.readingStatus === 'rereading' ? 'Reading again' : 'Reading'}
+            </ThemedText>
+            {lastRead ? (
+              <ThemedText type="caption" themeColor="textSecondary">
+                {`Last read ${lastRead}`}
+              </ThemedText>
+            ) : null}
+          </View>
 
-        {isReading ? (
-          <>
+          {pagesIn > 0 ? (
             <ThemedText type="h2" style={styles.readingPage}>
-              {pagesIn > 0 ? `Page ${pagesIn}` : 'Not started yet'}
+              {`Page ${pagesIn}`}
               {total ? <ThemedText type="small" themeColor="textSecondary">{`  of ${total}`}</ThemedText> : null}
             </ThemedText>
-            {total ? (
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: fillWidth }]} />
-              </View>
-            ) : null}
-            {leftOff ? (
-              <View style={styles.leftOff}>
-                <ThemedText type="caption" themeColor="textSecondary">
-                  Where you left off
-                </ThemedText>
-                <ThemedText type="small">{leftOff}</ThemedText>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-      </View>
+          ) : null}
+
+          {total && pagesIn > 0 ? (
+            <View style={styles.track}>
+              <View style={[styles.fill, { width: fillWidth }]} />
+            </View>
+          ) : null}
+
+          {leftOff ? (
+            <View style={styles.leftOff}>
+              <ThemedText type="caption" themeColor="textSecondary">
+                Where you left off
+              </ThemedText>
+              <ThemedText type="small">{leftOff}</ThemedText>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {isReading ? (
         <>
@@ -570,7 +578,13 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
               </View>
             ))
             : similar.map((other) => (
-              <View key={other.id} style={styles.similarRow}>
+              <Pressable
+                key={other.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${other.title} by ${other.author}. Open this book.`}
+                disabled={!onOpenBook}
+                onPress={() => onOpenBook?.(other)}
+                style={({ pressed }) => [styles.similarRow, pressed && styles.similarRowPressed]}>
                 <BookCover title={other.title} thumbnail={other.thumbnail} size={SIMILAR_COVER} />
                 <View style={styles.similarText}>
                   <ThemedText type="smallBold" numberOfLines={2}>
@@ -580,7 +594,8 @@ function BookDetails({ book, onClose, onChanged, onDeleted, onFilterByTheme, cou
                     {other.author}
                   </ThemedText>
                 </View>
-              </View>
+                {onOpenBook ? <Icon name="chevronRight" color={Colors.textSecondary} size={20} /> : null}
+              </Pressable>
             ))}
         </View>
       ) : null}
@@ -747,6 +762,9 @@ const styles = StyleSheet.create({
   },
   about: {
     gap: Spacing.one
+  },
+  similarRowPressed: {
+    opacity: 0.6
   },
   similarRow: {
     flexDirection: 'row',

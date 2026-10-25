@@ -471,6 +471,9 @@ export default function LibraryScreen() {
         }}
         onFilterByTheme={filterByTheme}
         countForTheme={(theme) => themeCounts.get(theme.toLowerCase()) ?? 0}
+        // Tapping "more like this" swaps the sheet to that book rather than closing it: the
+        // keyed remount inside starts it fresh, and the back gesture still closes the sheet.
+        onOpenBook={setSelectedBook}
       />
 
       {/* One tap from a Reading card to the keypad, without going through the book first. */}
