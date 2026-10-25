@@ -16,8 +16,14 @@ import { ShelfCelebrateContext, ShelfStepContext } from '@/components/shelf-cont
 // that continuity is the whole idea. Screens slide underneath it; it glides from the middle of
 // the welcome screen into the header and stays there.
 
-// The two screens where the shelf is the hero rather than a header mark.
-const HERO_ROUTES = ['/welcome', '/'];
+// Where the shelf is the hero rather than a header mark. The welcome screen is this group's
+// index, so its path is "/" — which is also the path the app launches at, and the reason it is
+// the index: a redirect into a group needs something concrete to land on, and "/welcome" left
+// nothing resolving at "/" at all.
+const HERO_ROUTES = ['/'];
+
+// Which screen this group falls back to when something sends you here without naming a screen.
+export const unstable_settings = { anchor: 'index', initialRouteName: 'index' };
 
 export default function AuthLayout() {
   const { status, user } = useSession();
@@ -58,7 +64,7 @@ export default function AuthLayout() {
           </Stack.Protected>
 
           <Stack.Protected guard={!signedIn}>
-            <Stack.Screen name="welcome" />
+            <Stack.Screen name="index" />
             <Stack.Screen name="sign-in" />
             <Stack.Screen name="sign-up" />
             <Stack.Screen name="forgot-password" />
