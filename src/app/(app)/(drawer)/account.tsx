@@ -1,12 +1,13 @@
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
 import { useSession } from '@/auth/session';
+import { registerForPush } from '@/notifications/push';
 import { PLAN_LABELS, PlanBadge } from '@/components/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from '@/components/settings-list';
@@ -41,6 +42,39 @@ export default function AccountScreen() {
   const { user, updateUser, signOut } = useSession();
   const snackbar = useSnackbar();
   const [confirmMarkRead, setConfirmMarkRead] = useState(false);
+  const [pushState, setPushState] = useState<'checking' | 'on' | 'off'>('checking');
+  const [pushReason, setPushReason] = useState('Not set up');
+
+  const applyPushResult = (result: Awaited<ReturnType<typeof registerForPush>>) => {
+    setPushState(result.ok ? 'on' : 'off');
+    if (!result.ok) {
+      setPushReason(
+        result.reason === 'denied'
+          ? 'Notifications are turned off in Android settings'
+          : result.reason === 'simulator'
+            ? 'Not a physical device'
+            : result.reason === 'no-project-id'
+              ? 'This build has no project id'
+              : (result.detail ?? 'Could not register')
+      );
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    registerForPush().then((result) => {
+      if (!cancelled) applyPushResult(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const retryPush = async () => {
+    setPushState('checking');
+    applyPushResult(await registerForPush());
+  };
+
   if (!user) return null;
 
   // For collections built before reading was tracked: a book you rated is one you read.
@@ -133,6 +167,21 @@ export default function AccountScreen() {
         </SettingsSection>
 
         <SettingsSection title="On your phone">
+          {/* Whether this device is actually reachable. Without it a dead registration looks
+              exactly like "nobody has done anything yet", which is how notifications shipped
+              broken and stayed that way. */}
+          <SettingsRow
+            icon="bell"
+            label={pushState === 'on' ? 'This device is registered' : 'This device is not registered'}
+            value={
+              pushState === 'on'
+                ? 'Notifications can reach you here'
+                : pushState === 'checking'
+                  ? 'Checking…'
+                  : `${pushReason} — tap to try again`
+            }
+            onPress={retryPush}
+          />
           {PUSH.map((item) => (
             <SettingsSwitchRow
               key={item.key}

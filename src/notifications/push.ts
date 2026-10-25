@@ -35,9 +35,13 @@ export const prepareChannel = async () => {
   }).catch(() => {});
 };
 
-// Set by EAS at build time. Without it getExpoPushTokenAsync cannot say which project the token
-// belongs to, and throws rather than handing back one that would never be delivered to.
-const projectId = () => Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+// Where EAS puts the project id, which getExpoPushTokenAsync needs to mint a token that will
+// actually be delivered to. It lives in two places depending on how the app was built, and only
+// one of them is populated in a release build — reading just the first is a silent failure on a
+// real device and works perfectly in Expo Go, which is the worst possible combination.
+const projectId = () =>
+  (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ??
+  ((Constants as unknown as { easConfig?: { projectId?: string } }).easConfig?.projectId);
 
 /**
  * Ask for permission if it has not been asked, then tell the server where to reach this device.
@@ -45,26 +49,42 @@ const projectId = () => Constants.expoConfig?.extra?.eas?.projectId as string | 
  * Returns false when there is nothing to register — a simulator, a refusal, a missing project id
  * — and never throws: notifications failing to set up must not stop anybody using the app.
  */
-export const registerForPush = async (): Promise<boolean> => {
+export type RegisterResult =
+  | { ok: true }
+  | { ok: false; reason: 'simulator' | 'denied' | 'no-project-id' | 'no-token' | 'failed'; detail?: string };
+
+// The last attempt, so a screen can say what happened instead of a person having to guess from
+// silence. This whole function used to swallow every failure and return false: the device never
+// registered, no notification could ever arrive, and there was nothing anywhere to say why.
+let lastResult: RegisterResult | null = null;
+export const lastRegisterResult = () => lastResult;
+
+export const registerForPush = async (): Promise<RegisterResult> => {
+  const finish = (result: RegisterResult) => {
+    lastResult = result;
+    if (!result.ok) console.warn('[push] not registered:', result.reason, result.detail ?? '');
+    return result;
+  };
+
   try {
     // An emulator has no push service to register with, and asking produces a confusing error
     // rather than a token.
-    if (!Device.isDevice) return false;
+    if (!Device.isDevice) return finish({ ok: false, reason: 'simulator' });
 
     await prepareChannel();
 
     const existing = await Notifications.getPermissionsAsync();
     const status =
       existing.status === 'granted' ? existing : await Notifications.requestPermissionsAsync();
-    if (status.status !== 'granted') return false;
+    if (status.status !== 'granted') return finish({ ok: false, reason: 'denied' });
 
     const id = projectId();
-    if (!id) return false;
+    if (!id) return finish({ ok: false, reason: 'no-project-id' });
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: id });
-    if (!token) return false;
+    if (!token) return finish({ ok: false, reason: 'no-token' });
 
-    await api.PUT('/me/push-token', {
+    const { error } = await api.PUT('/me/push-token', {
       body: {
         token,
         // The device's own zone, so the evening reminder arrives in the evening wherever the
@@ -72,9 +92,11 @@ export const registerForPush = async (): Promise<boolean> => {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
       }
     });
-    return true;
-  } catch {
-    return false;
+    if (error) return finish({ ok: false, reason: 'failed', detail: JSON.stringify(error).slice(0, 200) });
+
+    return finish({ ok: true });
+  } catch (err) {
+    return finish({ ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) });
   }
 };
 

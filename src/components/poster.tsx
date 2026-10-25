@@ -44,6 +44,12 @@ const distortion = (rowHeight: number, natural: number) => {
 
 const COVER_RATIO = 1.5;
 
+// The head's parts, named so the height below is arithmetic rather than a guess.
+const BRAND_ROW = 44;
+const TITLE_GAP = 40;
+const SUBTITLE_GAP = 20;
+const SUBTITLE_LINE = 46;
+
 type Plan = { render: () => React.ReactNode };
 
 // Rows that always fill. Pick the row count that brings each tile closest to a cover's shape,
@@ -230,15 +236,25 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
   const palette = POSTER_THEMES[theme];
   const height = POSTER_SIZES[size];
   const story = size === 'story';
-  // Fixed, so the title block is the same on every poster and the collage fills the rest.
-  const headHeight = story ? 560 : 430;
+
+  // The title is sized to fit its own line, and the head is then sized to fit the title. Fixing
+  // the head at a round number and hoping the words fit is what cropped "Dare's shelf" and then
+  // pushed the line under it off the bottom — the art simply started where the text still was.
+  const padTop = story ? 90 : 66;
+  const padBottom = story ? 70 : 54;
+  const inner = POSTER_WIDTH - 144;
+  // Bricolage ExtraBold runs about 0.52em per character at this weight; the cap is the size we
+  // would like, the division is the size that fits.
+  const titleSize = Math.min(story ? 150 : 128, Math.floor(inner / Math.max(6, title.length * 0.52)));
+  const titleLine = Math.ceil(titleSize * 1.05);
+  const headHeight = padTop + BRAND_ROW + TITLE_GAP + titleLine + SUBTITLE_GAP + SUBTITLE_LINE + padBottom;
+
   const artHeight = height - headHeight;
   const plan = (layout === 'grid' ? planGrid : planMosaic)(books, artHeight);
-  const titleSize = story ? 150 : 128;
 
   return (
     <View style={{ width: POSTER_WIDTH, height, backgroundColor: palette.bg, overflow: 'hidden' }}>
-      <View style={[styles.head, story && styles.headStory, { height: headHeight }]}>
+      <View style={[styles.head, { height: headHeight, paddingTop: padTop, paddingBottom: padBottom }]}>
         <View style={styles.headTop}>
           <View style={styles.mark}>
             <BrandMark size={44} />
@@ -253,8 +269,8 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
               line box smaller than the glyphs and crops the title top and bottom, which is
               exactly what it did. */}
           <ThemedText
-            numberOfLines={2}
-            style={[styles.title, { color: palette.title, fontSize: titleSize, lineHeight: titleSize * 1.02 }]}>
+            numberOfLines={1}
+            style={[styles.title, { color: palette.title, fontSize: titleSize, lineHeight: titleLine }]}>
             {title}
           </ThemedText>
           <ThemedText style={[styles.subtitle, { color: palette.sub }]}>{subtitle}</ThemedText>
@@ -326,10 +342,6 @@ const styles = StyleSheet.create({
     paddingBottom: 54,
     justifyContent: 'space-between'
   },
-  headStory: {
-    paddingTop: 90,
-    paddingBottom: 70
-  },
   headTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -356,7 +368,8 @@ const styles = StyleSheet.create({
   subtitle: {
     fontFamily: Fonts.bodySemiBold,
     fontSize: 36,
-    marginTop: 20,
+    lineHeight: SUBTITLE_LINE,
+    marginTop: SUBTITLE_GAP,
     letterSpacing: -0.2
   }
 });

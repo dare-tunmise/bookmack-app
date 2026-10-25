@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -7,7 +7,6 @@ import { captureRef } from 'react-native-view-shot';
 
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
-import { AppBar } from '@/components/app-bar';
 import {
   POSTER_SIZES,
   POSTER_THEMES,
@@ -162,13 +161,10 @@ export default function PosterScreen() {
       if (!permission.granted) throw new Error('BookMack needs permission to save to your photos.');
       const uri = await capture();
       if (!uri) throw new Error('The poster could not be rendered.');
-      try {
-        await MediaLibrary.saveToLibraryAsync(uri);
-      } catch {
-        // saveToLibraryAsync is the shortcut; createAssetAsync is the one that works when the
-        // shortcut will not, so the save is tried properly before it is called a failure.
-        await MediaLibrary.createAssetAsync(uri);
-      }
+      // saveToLibraryAsync only. The createAssetAsync fallback I added here is deprecated in this
+      // SDK and says so to the user's face in a red box — a "fix" that replaced a silent failure
+      // with a loud one.
+      await MediaLibrary.saveToLibraryAsync(uri);
       snackbar.show('Saved to your photos');
     } catch (err) {
       setError(localError(err));
@@ -211,8 +207,6 @@ export default function PosterScreen() {
 
   return (
     <ThemedView style={styles.screen}>
-      <AppBar title="Poster" left={{ icon: 'arrowLeft', label: 'Back', onPress: () => router.back() }} />
-
       <View
         style={styles.preview}
         onLayout={(event) => {

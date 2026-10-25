@@ -21,6 +21,7 @@ export default function AppLayout() {
       <Stack.Screen name="cover-scan" options={{ title: 'Cover scan' }} />
       <Stack.Screen name="add-book" options={{ title: 'Add book' }} />
       <Stack.Screen name="search" options={{ title: 'Find a book' }} />
+      <Stack.Screen name="poster" options={{ title: 'Poster' }} />
       <Stack.Screen name="book-form" options={{ title: 'Add a book' }} />
       <Stack.Screen name="edit-book" options={{ title: 'Edit book' }} />
       <Stack.Screen name="lend" options={{ title: 'Lend book' }} />
