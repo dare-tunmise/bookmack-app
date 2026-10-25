@@ -144,6 +144,12 @@ export default function PosterScreen() {
     return captureRef(shotRef, { format: 'png', quality: 1, width: POSTER_WIDTH, height: POSTER_SIZES[size] });
   }, [size]);
 
+  // Saving and sharing fail on the device, not at the API, so their errors are shown as they are.
+  // Routed through errorMessage they all became "Something went wrong. Please try again." — which
+  // is what made a real Save failure impossible to diagnose from a screenshot.
+  const localError = (err: unknown) =>
+    err instanceof Error && err.message ? err.message : errorMessage(err);
+
   const save = async () => {
     setBusy('save');
     setError(null);
@@ -156,10 +162,16 @@ export default function PosterScreen() {
       if (!permission.granted) throw new Error('BookMack needs permission to save to your photos.');
       const uri = await capture();
       if (!uri) throw new Error('The poster could not be rendered.');
-      await MediaLibrary.saveToLibraryAsync(uri);
+      try {
+        await MediaLibrary.saveToLibraryAsync(uri);
+      } catch {
+        // saveToLibraryAsync is the shortcut; createAssetAsync is the one that works when the
+        // shortcut will not, so the save is tried properly before it is called a failure.
+        await MediaLibrary.createAssetAsync(uri);
+      }
       snackbar.show('Saved to your photos');
     } catch (err) {
-      setError(errorMessage(err));
+      setError(localError(err));
     } finally {
       setBusy(null);
     }
@@ -174,7 +186,7 @@ export default function PosterScreen() {
       if (!uri) throw new Error('The poster could not be rendered.');
       await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share your shelf' });
     } catch (err) {
-      setError(errorMessage(err));
+      setError(localError(err));
     } finally {
       setBusy(null);
     }

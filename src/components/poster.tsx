@@ -29,31 +29,39 @@ export type PosterBook = {
   thumbnail: string | null;
 };
 
-// How close a collage comes to filling the space left for it. Under-filling is wasted poster;
-// bleeding past the bottom is fine up to about a fifth, because a cropped bottom row reads as a
-// shelf continuing rather than as a mistake.
-const fillScore = (ratio: number) => (ratio <= 1 ? (1 - ratio) * 1.2 : ratio <= 1.2 ? (ratio - 1) * 2.5 : 9);
+// The collage fills the space left for it, always. It used to take its natural height and let the
+// title block absorb whatever was left — which for ten books meant a 648px collage on a 1350px
+// poster and half the thing empty green. Now the art area is a fixed size and the rows are sized
+// to it, so the question is only which row count distorts the covers least.
+//
+// Cropping beats stretching: a cover cut a little still looks like a cover, a stretched one looks
+// wrong. So a row shorter than its natural height scores on how much it crops, and a row taller
+// than natural is penalised three times as hard.
+const distortion = (rowHeight: number, natural: number) => {
+  const ratio = rowHeight / natural;
+  return ratio <= 1 ? 1 - ratio : (ratio - 1) * 3;
+};
 
 const COVER_RATIO = 1.5;
 
-type Plan = { height: number; render: () => React.ReactNode };
+type Plan = { render: () => React.ReactNode };
 
 // Rows that always fill. Pick the row count that brings each tile closest to a cover's shape,
 // spread the books across those rows, and let every row span the full width — so the rectangle is
 // complete whatever the number of books, and covers crop a little rather than leaving gaps.
-function planGrid(books: PosterBook[], maxHeight: number): Plan {
+function planGrid(books: PosterBook[], artHeight: number): Plan {
   const count = books.length;
-  let best = { rows: 1, tile: POSTER_WIDTH, height: POSTER_WIDTH * COVER_RATIO, score: Infinity };
+  let best = { rows: 1, score: Infinity };
 
   for (let rows = 1; rows <= Math.min(count, 10); rows += 1) {
     const columns = Math.ceil(count / rows);
-    const tile = POSTER_WIDTH / columns;
-    const height = rows * tile * COVER_RATIO;
-    const score = fillScore(height / maxHeight);
-    if (score < best.score) best = { rows, tile, height, score };
+    const natural = (POSTER_WIDTH / columns) * COVER_RATIO;
+    const score = distortion(artHeight / rows, natural);
+    if (score < best.score) best = { rows, score };
   }
 
-  const { rows, tile, height } = best;
+  const { rows } = best;
+  const rowHeight = artHeight / rows;
   const base = Math.floor(count / rows);
   const extra = count % rows;
   const lines: PosterBook[][] = [];
@@ -65,11 +73,10 @@ function planGrid(books: PosterBook[], maxHeight: number): Plan {
   }
 
   return {
-    height,
     render: () => (
       <View>
         {lines.map((line, row) => (
-          <View key={row} style={{ flexDirection: 'row', height: tile * COVER_RATIO }}>
+          <View key={row} style={{ flexDirection: 'row', height: rowHeight }}>
             {line.map((book) => (
               <View key={book.id} style={styles.cell}>
                 <Cover book={book} />
@@ -85,29 +92,31 @@ function planGrid(books: PosterBook[], maxHeight: number): Plan {
 // Two-by-two features with the rest packed around them, and never a hole: a feature eats four
 // cells, so books + three per feature has to divide by the column count exactly. Features sit in
 // fixed slots and everything else flows in finish order.
-function planMosaic(books: PosterBook[], maxHeight: number): Plan {
+function planMosaic(books: PosterBook[], artHeight: number): Plan {
   const count = books.length;
   const want = count >= 14 ? 3 : count >= 8 ? 2 : count >= 4 ? 1 : 0;
-  let best: { columns: number; features: number; rows: number; slots: [number, number][]; height: number; score: number } | null =
-    null;
+  let best: { columns: number; features: number; rows: number; slots: [number, number][]; score: number } | null = null;
 
   for (let columns = 2; columns <= 7; columns += 1) {
     for (let features = 0; features <= Math.min(3, Math.floor(count / 3)); features += 1) {
+      // A feature eats four cells, so books plus three per feature has to divide by the column
+      // count exactly. That is what keeps a hole out of the rectangle.
       if ((count + 3 * features) % columns) continue;
       const rows = (count + 3 * features) / columns;
       if (features > 0 && (columns < 3 || rows < 2)) continue;
       const slots = featureSlots(columns, rows, features);
       if (slots.length < features) continue;
-      const height = (rows * POSTER_WIDTH * COVER_RATIO) / columns;
-      const score = fillScore(height / maxHeight) + Math.abs(features - want) * 0.35 + (columns < 3 ? 1 : 0);
-      if (!best || score < best.score) best = { columns, features, rows, slots, height, score };
+      const natural = (POSTER_WIDTH / columns) * COVER_RATIO;
+      const score = distortion(artHeight / rows, natural) + Math.abs(features - want) * 0.2 + (columns < 3 ? 0.4 : 0);
+      if (!best || score < best.score) best = { columns, features, rows, slots, score };
     }
   }
 
-  if (!best) return planGrid(books, maxHeight);
+  if (!best) return planGrid(books, artHeight);
 
-  const { columns, features, rows, slots, height } = best;
-  const cell = POSTER_WIDTH / columns;
+  const { columns, features, rows, slots } = best;
+  const cellWidth = POSTER_WIDTH / columns;
+  const cellHeight = artHeight / rows;
 
   // React Native has no CSS grid, so the mosaic is placed absolutely on a grid worked out here.
   // Features claim their 2×2 block first; the rest fill the remaining cells in order.
@@ -118,10 +127,10 @@ function planMosaic(books: PosterBook[], maxHeight: number): Plan {
     for (let r = row; r < row + 2; r += 1) for (let c = column; c < column + 2; c += 1) taken.add(`${r}:${c}`);
     placed.push({
       book: books[index],
-      left: (column - 1) * cell,
-      top: (row - 1) * cell * COVER_RATIO,
-      width: cell * 2,
-      height: cell * 2 * COVER_RATIO
+      left: (column - 1) * cellWidth,
+      top: (row - 1) * cellHeight,
+      width: cellWidth * 2,
+      height: cellHeight * 2
     });
   });
 
@@ -131,19 +140,18 @@ function planMosaic(books: PosterBook[], maxHeight: number): Plan {
       if (taken.has(`${row}:${column}`)) continue;
       placed.push({
         book: books[next],
-        left: (column - 1) * cell,
-        top: (row - 1) * cell * COVER_RATIO,
-        width: cell,
-        height: cell * COVER_RATIO
+        left: (column - 1) * cellWidth,
+        top: (row - 1) * cellHeight,
+        width: cellWidth,
+        height: cellHeight
       });
       next += 1;
     }
   }
 
   return {
-    height,
     render: () => (
-      <View style={{ width: POSTER_WIDTH, height }}>
+      <View style={{ width: POSTER_WIDTH, height: artHeight }}>
         {placed.map((item) => (
           <View
             key={item.book.id}
@@ -222,13 +230,11 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
   const palette = POSTER_THEMES[theme];
   const height = POSTER_SIZES[size];
   const story = size === 'story';
-  // The collage takes the height its shape wants; whatever is left above it is the title block,
-  // which never goes below this.
-  const minHead = story ? 520 : 400;
-  const plan = (layout === 'grid' ? planGrid : planMosaic)(books, height - minHead);
-  const artHeight = Math.min(plan.height, height - minHead);
-  const headHeight = height - artHeight;
-  const titleSize = story ? (headHeight > 820 ? 184 : 150) : headHeight > 560 ? 160 : 132;
+  // Fixed, so the title block is the same on every poster and the collage fills the rest.
+  const headHeight = story ? 560 : 430;
+  const artHeight = height - headHeight;
+  const plan = (layout === 'grid' ? planGrid : planMosaic)(books, artHeight);
+  const titleSize = story ? 150 : 128;
 
   return (
     <View style={{ width: POSTER_WIDTH, height, backgroundColor: palette.bg, overflow: 'hidden' }}>
@@ -243,11 +249,20 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
         </View>
 
         <View>
-          <ThemedText style={[styles.title, { color: palette.title, fontSize: titleSize }]}>{title}</ThemedText>
+          {/* lineHeight is not optional at this size. Without it React Native gives the text a
+              line box smaller than the glyphs and crops the title top and bottom, which is
+              exactly what it did. */}
+          <ThemedText
+            numberOfLines={2}
+            style={[styles.title, { color: palette.title, fontSize: titleSize, lineHeight: titleSize * 1.02 }]}>
+            {title}
+          </ThemedText>
           <ThemedText style={[styles.subtitle, { color: palette.sub }]}>{subtitle}</ThemedText>
         </View>
       </View>
 
+      {/* Fixed height with the overflow clipped: rows are sized to fill it, and a cover crops a
+          little rather than leaving a band of background. */}
       <View style={{ height: artHeight, overflow: 'hidden' }}>{plan.render()}</View>
     </View>
   );

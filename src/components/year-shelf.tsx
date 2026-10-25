@@ -52,16 +52,20 @@ export function YearShelf({ books, width, height, labelColor }: YearShelfProps) 
   const gaps = Math.max(0, Math.max(...halves.map((half) => half.books.length)) - 1);
   const perPage = (width - gaps * GAP) / widest;
 
+  // A half-year with nothing in it is not drawn at all. It used to render a full-height empty box
+  // and a ledge under a "0 pages" label, which read as a bug rather than as a quiet half-year.
+  const shown = halves.map((half, index) => ({ ...half, total: totals[index] })).filter((half) => half.books.length);
+
   return (
     <View style={styles.shelves}>
-      {halves.map((half, index) => (
+      {shown.map((half) => (
         <View key={half.label}>
           <View style={styles.label}>
             <ThemedText type="caption" style={[styles.labelText, { color: labelColor }]}>
               {half.label}
             </ThemedText>
             <ThemedText type="caption" style={[styles.labelText, { color: labelColor }]}>
-              {totals[index].toLocaleString()} pages
+              {half.total.toLocaleString()} pages
             </ThemedText>
           </View>
 

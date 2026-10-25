@@ -109,10 +109,14 @@ export default function StatsScreen() {
       header: () => (
         <AppBar left={{ icon: 'menu', label: 'Open menu', onPress: openDrawer }}>
           <View style={styles.barRow}>
-            <ThemedText type="subtitle" accessibilityRole="header" style={styles.barTitle}>
+            <ThemedText type="subtitle" accessibilityRole="header" numberOfLines={1} style={styles.barTitle}>
               Stats
             </ThemedText>
-            <SegmentedControl accessibilityLabel="Range" options={RANGES} value={range} onChange={setRange} />
+            {/* A fixed width, because the control sizes its segments from its own measured width —
+                left to flex against a title it collapsed to a sliver. */}
+            <View style={styles.range}>
+              <SegmentedControl accessibilityLabel="Range" options={RANGES} value={range} onChange={setRange} />
+            </View>
           </View>
         </AppBar>
       )
@@ -542,7 +546,12 @@ const styles = StyleSheet.create({
     gap: Spacing.two
   },
   barTitle: {
-    flex: 1
+    flex: 1,
+    minWidth: 0
+  },
+  range: {
+    width: 176,
+    flexShrink: 0
   },
   content: {
     paddingBottom: Spacing.six,
