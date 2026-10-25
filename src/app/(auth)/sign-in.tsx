@@ -1,10 +1,11 @@
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
 import { useSession } from '@/auth/session';
-import { AuthScreen } from '@/components/auth-screen';
+import { AuthScreen, rise } from '@/components/auth-screen';
 import { Button } from '@/components/button';
 import { AuthDivider, GoogleButton } from '@/components/google-button';
 import { useSnackbar } from '@/components/snackbar';
@@ -50,8 +51,16 @@ export default function SignInScreen() {
   return (
     <AuthScreen
       title="Welcome back"
-      subtitle="Log in to your BookMack library."
-      illustration={{ seed: 'bookmack-login', backgroundColor: 'eef7e8' }}>
+      subtitle="Pick up where you left off.">
+      {/* Google first here too. Whoever signed up with it has to find it in the same place. */}
+      <Animated.View entering={rise(3)} style={styles.google}>
+        <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
+      </Animated.View>
+      <Animated.View entering={rise(4)}>
+        <AuthDivider />
+      </Animated.View>
+
+      <Animated.View entering={rise(5)} style={styles.form}>
       <TextField
         label="Email"
         value={email}
@@ -88,19 +97,39 @@ export default function SignInScreen() {
         style={styles.forgot}>
         <ThemedText type="linkPrimary">Forgot password?</ThemedText>
       </Pressable>
-      <Button title="Log in" onPress={submit} loading={submitting} disabled={!email.trim() || !password} />
-      {errors.formError ? <FieldError message={errors.formError} /> : null}
-      <AuthDivider />
-      <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
-      <Link href="/sign-up" replace style={styles.switch}>
-        <ThemedText themeColor="textSecondary">New here? </ThemedText>
-        <ThemedText type="linkPrimary">Create an account</ThemedText>
-      </Link>
+      </Animated.View>
+
+      <View style={styles.grow} />
+
+      <Animated.View entering={rise(6)} style={styles.submit}>
+        <Button title="Log in" onPress={submit} loading={submitting} disabled={!email.trim() || !password} />
+        {errors.formError ? <FieldError message={errors.formError} /> : null}
+      </Animated.View>
+
+      <Animated.View entering={rise(7)}>
+        <Link href="/sign-up" replace style={styles.switch}>
+          <ThemedText themeColor="textSecondary">New here? </ThemedText>
+          <ThemedText type="linkPrimary">Create an account</ThemedText>
+        </Link>
+      </Animated.View>
     </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  google: {
+    marginTop: 24
+  },
+  form: {
+    gap: 12
+  },
+  grow: {
+    flex: 1,
+    minHeight: 24
+  },
+  submit: {
+    gap: 12
+  },
   forgot: {
     alignSelf: 'flex-end'
   },

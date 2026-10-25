@@ -44,8 +44,7 @@ export default function ForgotPasswordScreen() {
     return (
       <AuthScreen
         title="Check your email"
-        subtitle={`If an account exists for ${sentTo}, we've sent a link to reset your password. It expires in 1 hour.`}
-        illustration={{ seed: 'bookmack-forgot', backgroundColor: '9fe870' }}>
+        subtitle={`If an account exists for ${sentTo}, we've sent a link to reset your password. It expires in 1 hour.`}>
         <Button title="Back to log in" onPress={() => router.back()} />
       </AuthScreen>
     );
@@ -54,8 +53,7 @@ export default function ForgotPasswordScreen() {
   return (
     <AuthScreen
       title="Forgot password?"
-      subtitle="Enter your email and we'll send you a link to reset your password."
-      illustration={{ seed: 'bookmack-forgot', backgroundColor: 'eef7e8' }}>
+      subtitle="Enter your email and we'll send you a link to reset your password.">
       <TextField
         label="Email"
         value={email}

@@ -72,8 +72,7 @@ export default function VerifyEmailScreen() {
   return (
     <AuthScreen
       title="Check your email"
-      subtitle={`We sent a 6-digit code to ${user?.email ?? 'your email address'}.`}
-      illustration={{ seed: 'bookmack-verify', backgroundColor: 'eef7e8' }}>
+      subtitle={`We sent a 6-digit code to ${user?.email ?? 'your email address'}.`}>
       <CodeInput
         value={code}
         onChange={(next) => {

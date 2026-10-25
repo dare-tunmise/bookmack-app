@@ -83,16 +83,11 @@ function RootNavigator() {
         <Stack.Screen name="(app)" />
       </Stack.Protected>
 
-      <Stack.Protected guard={signedIn && !verified}>
-        <Stack.Screen name="verify-email" />
-      </Stack.Protected>
-
-      {/* Welcome comes first: signed-out users are redirected to the first screen they can see. */}
-      <Stack.Protected guard={!signedIn}>
-        <Stack.Screen name="welcome" />
-        <Stack.Screen name="sign-in" />
-        <Stack.Screen name="sign-up" />
-        <Stack.Screen name="forgot-password" />
+      {/* Signed out and signed-in-but-unverified share one group, because they share one shelf:
+          it is mounted in that group's layout and has to survive every route change between
+          these screens. The two states are told apart inside it. */}
+      <Stack.Protected guard={!verified}>
+        <Stack.Screen name="(auth)" />
       </Stack.Protected>
     </Stack>
   );

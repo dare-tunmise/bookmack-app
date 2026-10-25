@@ -1,10 +1,11 @@
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Linking, StyleSheet } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
 import { useSession } from '@/auth/session';
-import { AuthScreen } from '@/components/auth-screen';
+import { AuthScreen, rise } from '@/components/auth-screen';
 import { Button } from '@/components/button';
 import { AuthDivider, GoogleButton } from '@/components/google-button';
 import { PasswordRules, passwordMeetsRules } from '@/components/password-rules';
@@ -20,6 +21,7 @@ const FIELDS = ['name', 'email', 'password'] as const;
 export default function SignUpScreen() {
   const { signUp } = useSession();
   const snackbar = useSnackbar();
+  const [showRules, setShowRules] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,8 +58,17 @@ export default function SignUpScreen() {
   return (
     <AuthScreen
       title="Create your account"
-      subtitle="Keep track of your books and who has them."
-      illustration={{ seed: 'bookmack-signup', backgroundColor: '9fe870' }}>
+      subtitle="Free for your first 50 books.">
+      {/* Google above the form, on both screens. It is the fastest way in for most people and it
+          skips the code step entirely — putting it under a form nobody filled in is burying it. */}
+      <Animated.View entering={rise(3)} style={styles.google}>
+        <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
+      </Animated.View>
+      <Animated.View entering={rise(4)}>
+        <AuthDivider />
+      </Animated.View>
+
+      <Animated.View entering={rise(5)} style={styles.form}>
       <TextField
         label="Name"
         value={name}
@@ -93,17 +104,23 @@ export default function SignUpScreen() {
           errors.clearFieldError('password');
         }}
         error={errors.fieldErrors.password}
+        onFocus={() => setShowRules(true)}
         secureTextEntry
         autoComplete="new-password"
         textContentType="newPassword"
         returnKeyType="go"
         onSubmitEditing={submit}
       />
-      <PasswordRules password={password} />
+      {/* The rules appear once the password is reached, not before: five greyed-out demands over
+          an empty field read as a list of obstacles. */}
+      {showRules ? <PasswordRules password={password} /> : null}
+      </Animated.View>
+
+      <View style={styles.grow} />
+
+      <Animated.View entering={rise(6)} style={styles.submit}>
       <Button title="Create account" onPress={submit} loading={submitting} disabled={!canSubmit} />
       {errors.formError ? <FieldError message={errors.formError} /> : null}
-      <AuthDivider />
-      <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
       <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
         {'By continuing you agree to the '}
         <ThemedText type="linkPrimary" accessibilityRole="link" onPress={() => Linking.openURL(TERMS_URL)}>
@@ -115,15 +132,32 @@ export default function SignUpScreen() {
         </ThemedText>
         .
       </ThemedText>
-      <Link href="/sign-in" replace style={styles.center}>
-        <ThemedText themeColor="textSecondary">Already have an account? </ThemedText>
-        <ThemedText type="linkPrimary">Log in</ThemedText>
-      </Link>
+      </Animated.View>
+
+      <Animated.View entering={rise(7)}>
+        <Link href="/sign-in" replace style={styles.center}>
+          <ThemedText themeColor="textSecondary">Already have an account? </ThemedText>
+          <ThemedText type="linkPrimary">Log in</ThemedText>
+        </Link>
+      </Animated.View>
     </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  google: {
+    marginTop: 24
+  },
+  form: {
+    gap: 12
+  },
+  grow: {
+    flex: 1,
+    minHeight: 24
+  },
+  submit: {
+    gap: 12
+  },
   center: {
     textAlign: 'center'
   }
