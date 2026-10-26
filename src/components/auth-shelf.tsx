@@ -31,6 +31,11 @@ export const SHELF_HEIGHT = 200;
 const HERO = { x: 46, y: 124, scale: 1 };
 const COMPACT = { x: 160, y: 42, scale: 0.32 };
 
+// How far down the screen the parked shelf reaches, measured from the top of the safe area.
+// AuthScreen uses it to start its heading below the shelf: the two were set by hand before, and
+// drifted 2px into each other — the ledge sat on top of "Welcome back".
+export const SHELF_COMPACT_BOTTOM = COMPACT.y + SHELF_HEIGHT * COMPACT.scale;
+
 // No `easing` key at all. Reanimated merges this over its own defaults, so spelling it out as
 // `easing: undefined` replaced the default easing function with undefined and the UI thread then
 // called undefined(progress) on every frame — the screen went white, and Android took the app

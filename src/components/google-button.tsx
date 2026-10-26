@@ -78,8 +78,10 @@ export function GoogleButton({
   );
 }
 
-// "or" with a rule either side, for the gap between the password form and this.
-export function AuthDivider({ label = 'or' }: { label?: string }) {
+// A rule either side of "or use your email", between the Google button and the form. The air
+// around it comes from AuthScreen's row gap — a hairline needs more room than a field, and with
+// none at all it sat flush against the button above and the first field below.
+export function AuthDivider({ label = 'or use your email' }: { label?: string }) {
   return (
     <View style={styles.divider}>
       <View style={styles.rule} />

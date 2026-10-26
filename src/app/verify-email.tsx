@@ -189,14 +189,13 @@ const styles = StyleSheet.create({
   grow: {
     flex: 1
   },
+  // 20 of the screen's row gap, plus 10, is the design's 30px above the boxes.
   code: {
-    marginTop: 30,
-    marginBottom: 12
+    marginTop: 10
   },
   links: {
     alignItems: 'center',
-    gap: 14,
-    marginTop: 8
+    gap: 14
   },
   sent: {
     color: Colors.brand

@@ -53,7 +53,7 @@ export default function SignInScreen() {
       title="Welcome back"
       subtitle="Pick up where you left off.">
       {/* Google first here too. Whoever signed up with it has to find it in the same place. */}
-      <Animated.View entering={rise(3)} style={styles.google}>
+      <Animated.View entering={rise(3)}>
         <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
       </Animated.View>
       <Animated.View entering={rise(4)}>
@@ -117,9 +117,6 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
-  google: {
-    marginTop: 24
-  },
   form: {
     gap: 12
   },
@@ -134,7 +131,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end'
   },
   switch: {
-    textAlign: 'center',
-    marginTop: 8
+    textAlign: 'center'
   }
 });

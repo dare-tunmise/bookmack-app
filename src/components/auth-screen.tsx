@@ -5,10 +5,18 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { IconButton } from '@/components/app-bar';
+import { SHELF_COMPACT_BOTTOM } from '@/components/auth-shelf';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Fonts, Spacing } from '@/constants/theme';
 
 export const AUTH_CONTENT_WIDTH = 480;
+
+// The back-arrow row above the scrolling content.
+const TOP_BAR_HEIGHT = 48;
+// Clears the parked shelf with room to spare, rather than guessing at a number that has to be
+// kept in step with it by hand.
+const SHELF_CLEARANCE = 16;
+const CONTENT_TOP = Math.round(SHELF_COMPACT_BOTTOM - TOP_BAR_HEIGHT + SHELF_CLEARANCE);
 
 // Everything in the flow rises 55ms after the thing above it. One cadence across five screens is
 // most of why they read as one place rather than five pages.
@@ -41,16 +49,14 @@ export function AuthScreen({ title, subtitle, children }: AuthScreenProps) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled">
-          <Animated.View entering={rise(1)}>
+          {/* Title and subtitle are one block: they belong together at 8px, and the 20px rhythm
+              below applies between blocks, not inside this one. */}
+          <Animated.View entering={rise(1)} style={styles.head}>
             <ThemedText accessibilityRole="header" style={styles.title}>
               {title}
             </ThemedText>
+            {subtitle ? <ThemedText style={styles.subtitle}>{subtitle}</ThemedText> : null}
           </Animated.View>
-          {subtitle ? (
-            <Animated.View entering={rise(2)}>
-              <ThemedText style={styles.subtitle}>{subtitle}</ThemedText>
-            </Animated.View>
-          ) : null}
           {children}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -63,7 +69,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   topBar: {
-    height: 48,
+    height: TOP_BAR_HEIGHT,
     justifyContent: 'center',
     paddingHorizontal: 10
   },
@@ -74,8 +80,16 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 22,
     paddingBottom: 30,
-    // Clears the shelf, which the layout parks in this corner at a third of its size.
-    paddingTop: 56
+    // Starts below the shelf the layout parks above this, derived from the shelf's own geometry.
+    paddingTop: CONTENT_TOP,
+    // The rhythm between blocks, set here so no screen can forget it. It used to be each
+    // screen's own business, and the one screen that supplied no margins at all — forgot
+    // password — rendered its heading, field and button touching each other. The value is the
+    // design's own: `.or { margin: 20px 0 }`.
+    rowGap: 20
+  },
+  head: {
+    gap: Spacing.two
   },
   title: {
     fontFamily: Fonts.display,
@@ -87,7 +101,6 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
-    color: Colors.textSecondary,
-    marginTop: Spacing.two
+    color: Colors.textSecondary
   }
 });

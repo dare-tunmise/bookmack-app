@@ -61,7 +61,7 @@ export default function SignUpScreen() {
       subtitle="Free for your first 50 books.">
       {/* Google above the form, on both screens. It is the fastest way in for most people and it
           skips the code step entirely — putting it under a form nobody filled in is burying it. */}
-      <Animated.View entering={rise(3)} style={styles.google}>
+      <Animated.View entering={rise(3)}>
         <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
       </Animated.View>
       <Animated.View entering={rise(4)}>
@@ -145,9 +145,6 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  google: {
-    marginTop: 24
-  },
   form: {
     gap: 12
   },
