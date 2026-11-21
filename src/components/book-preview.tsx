@@ -17,7 +17,7 @@ export function BookPreview({ candidate }: { candidate: Candidate }) {
 
   return (
     <View style={styles.container}>
-      <BookCover title={candidate.title} thumbnail={candidate.thumbnail} size="large" />
+      <BookCover title={candidate.title} thumbnail={candidate.thumbnail} author={candidate.authors.join(', ')} size="large" />
       <ThemedText type="h2" style={[styles.center, styles.title]}>
         {candidate.title}
       </ThemedText>

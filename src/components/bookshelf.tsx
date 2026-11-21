@@ -88,7 +88,7 @@ export function Bookshelf({
                     onLongPress={onLongPressBook ? () => onLongPressBook(book) : undefined}
                     style={({ pressed }) => [styles.book, pressed && styles.pressed]}>
                     <View style={selecting && !picked ? styles.unpicked : undefined}>
-                      <BookCover title={book.title} thumbnail={book.thumbnail} size={coverWidth} />
+                      <BookCover title={book.title} thumbnail={book.thumbnail} author={book.author} size={coverWidth} />
                     </View>
                     {badge && !selecting ? (
                       <Badge label={badge.label} tone={badge.tone} style={styles.coverBadge} />

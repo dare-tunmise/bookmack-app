@@ -300,7 +300,7 @@ export function PickReadSheet({ visible, onClose, onStarted }: PickReadSheetProp
             </Pressable>
           ) : null}
           <View style={styles.bookRow}>
-            <BookCover title={book.title} thumbnail={book.thumbnail} size={64} />
+            <BookCover title={book.title} thumbnail={book.thumbnail} author={book.author} size={64} />
             <View style={styles.flex}>
               <ThemedText style={styles.title} numberOfLines={2}>
                 {book.title}

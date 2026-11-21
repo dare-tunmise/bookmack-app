@@ -342,7 +342,7 @@ function BookDetails({
       // edge; a bar tracking down the side of a card is just noise.
       showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <BookCover title={book.title} thumbnail={book.thumbnail} size={64} />
+        <BookCover title={book.title} thumbnail={book.thumbnail} author={book.author} size={64} />
         <View style={styles.headline}>
           <ThemedText accessibilityRole="header" style={styles.title}>
             {book.title}
@@ -585,7 +585,7 @@ function BookDetails({
                 disabled={!onOpenBook}
                 onPress={() => onOpenBook?.(other)}
                 style={({ pressed }) => [styles.similarRow, pressed && styles.similarRowPressed]}>
-                <BookCover title={other.title} thumbnail={other.thumbnail} size={SIMILAR_COVER} />
+                <BookCover title={other.title} thumbnail={other.thumbnail} author={other.author} size={SIMILAR_COVER} />
                 <View style={styles.similarText}>
                   <ThemedText type="smallBold" numberOfLines={2}>
                     {other.title}

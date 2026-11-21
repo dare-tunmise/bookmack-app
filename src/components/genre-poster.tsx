@@ -122,7 +122,7 @@ export function GenrePoster({
 
               <View style={styles.grid}>
                 {covers.map((book) => (
-                  <BookCover key={book.id} title={book.title} thumbnail={book.thumbnail} size={COVER} />
+                  <BookCover key={book.id} title={book.title} thumbnail={book.thumbnail} author={book.author} size={COVER} />
                 ))}
               </View>
 

@@ -63,7 +63,7 @@ export function LoanSheet({ loan, onClose, onReturned }: LoanSheetProps) {
       {shownLoan ? (
         <View style={styles.sheet}>
           <View style={styles.sheetHeader}>
-            <BookCover title={shownLoan.book?.title ?? '?'} thumbnail={shownLoan.book?.thumbnail ?? null} size={64} />
+            <BookCover title={shownLoan.book?.title ?? '?'} thumbnail={shownLoan.book?.thumbnail ?? null} author={shownLoan.book?.author} size={64} />
             <View style={styles.rowText}>
               <ThemedText accessibilityRole="header" style={styles.sheetTitle}>
                 {shownLoan.book?.title ?? 'Deleted book'}

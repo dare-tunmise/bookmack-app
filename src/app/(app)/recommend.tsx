@@ -163,7 +163,7 @@ export default function RecommendScreen() {
       edges={['bottom', 'left', 'right']}>
       <View style={styles.card}>
         <View style={styles.bookRow}>
-          <BookCover title={book.title} thumbnail={book.thumbnail} size={64} />
+          <BookCover title={book.title} thumbnail={book.thumbnail} author={book.author} size={64} />
           <View style={styles.flex}>
             <ThemedText style={styles.bookTitle} numberOfLines={2}>
               {book.title}

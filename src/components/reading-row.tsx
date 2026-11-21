@@ -54,7 +54,7 @@ export function ReadingRow({ row, request, onPress, onUpdatePage, onHandOver }: 
             accessibilityLabel={`${book.title} by ${book.author}`}
             onPress={onPress}
             style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
-            <BookCover title={book.title} thumbnail={book.thumbnail} size={COVER} />
+            <BookCover title={book.title} thumbnail={book.thumbnail} author={book.author} size={COVER} />
             <View style={styles.headline}>
               <ThemedText type="smallBold" numberOfLines={2}>
                 {book.title}
