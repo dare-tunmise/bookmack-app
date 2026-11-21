@@ -30,10 +30,14 @@ const LIMITS: { key: LimitKey; usageLabel: string; compareLabel: string }[] = [
   { key: 'libraryQuestionsPerMonth', usageLabel: 'Questions this month', compareLabel: 'Questions a month' }
 ];
 
-const FEATURES: { key: FeatureKey; label: string }[] = [
+// `note` says where a feature actually works, for the ones that do not work here. Premium really
+// does include both exports — the website has the buttons, behind the same server check — but the
+// app has no export screen at all, so a tick with nothing after it promised a subscriber something
+// they could not find. Delete the note when export lands in the app, not the row.
+const FEATURES: { key: FeatureKey; label: string; note?: string }[] = [
   { key: 'batchAdd', label: 'Add many books at once' },
-  { key: 'csvExport', label: 'Export to CSV' },
-  { key: 'pdfExport', label: 'Export to PDF' },
+  { key: 'csvExport', label: 'Export to CSV', note: 'on bookmack.com' },
+  { key: 'pdfExport', label: 'Export to PDF', note: 'on bookmack.com' },
   { key: 'automatedReminders', label: 'Automatic reminders' },
   { key: 'customRecommendationMessage', label: 'Personal recommendation messages' },
   { key: 'askLibrary', label: 'Ask your library a question' }
@@ -217,7 +221,14 @@ function PlanCard({ plan, current }: { plan: PlanInfo; current: boolean }) {
           <View
             key={feature.key}
             accessible
-            accessibilityLabel={`${feature.label}: ${included ? 'included' : 'not included'}`}
+            accessibilityLabel={[
+              `${feature.label}: ${included ? 'included' : 'not included'}`,
+              // Read out too, not just drawn: the note is the part that stops the tick being a
+              // promise the app cannot keep.
+              included && feature.note ? feature.note : null
+            ]
+              .filter(Boolean)
+              .join(', ')}
             style={styles.featureRow}>
             <Icon
               name={included ? 'check' : 'close'}
@@ -227,6 +238,11 @@ function PlanCard({ plan, current }: { plan: PlanInfo; current: boolean }) {
             />
             <ThemedText type="small" themeColor={included ? 'text' : 'textSecondary'} style={styles.flex}>
               {feature.label}
+              {/* Only where it is included: on the Free column the tick is already a cross, and
+                  "on bookmack.com" beside it would read as an offer rather than a limitation. */}
+              {included && feature.note ? (
+                <ThemedText type="small" themeColor="textSecondary">{` · ${feature.note}`}</ThemedText>
+              ) : null}
             </ThemedText>
           </View>
         );
