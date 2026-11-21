@@ -3,6 +3,15 @@ import { Fragment, useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
+import {
+  BILLING_AVAILABLE,
+  buyPremium,
+  openPlaySubscriptions,
+  premiumOffer,
+  settlePurchase,
+  unfinishedPurchases,
+  type PremiumOffer
+} from '@/billing/play';
 import { errorMessage, toApiError } from '@/api/errors';
 import { Badge, PLAN_LABELS } from '@/components/badge';
 import { Banner } from '@/components/banner';
@@ -43,7 +52,9 @@ const FEATURES: { key: FeatureKey; label: string; note?: string }[] = [
   { key: 'askLibrary', label: 'Ask your library a question' }
 ];
 
-// Google Play charges each country its own price for the same subscription; this is the US one.
+// The fallback prices. Play charges each country its own price for the same subscription, so when
+// the store answers, its own `displayPrice` is shown instead of this — these are the US figures,
+// and they are what a device with no store connection sees.
 const PLAN_PRICES: Record<PlanInfo['plan'], string> = {
   free: 'Free forever',
   premium: '$24.99 a year'
@@ -81,6 +92,9 @@ export default function PlanScreen() {
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [offer, setOffer] = useState<PremiumOffer | null>(null);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -96,12 +110,78 @@ export default function PlanScreen() {
     }
   }, []);
 
+  // The server is the only thing that decides whether a purchase counts: it re-reads the token
+  // from Google, records the subscription and acknowledges it. Only once it has said yes is the
+  // transaction taken out of the store's queue.
+  const register = useCallback(async (purchase: Awaited<ReturnType<typeof buyPremium>>) => {
+    if (!purchase?.purchaseToken) return;
+    const { error: failed } = await api.POST('/billing/play/purchase', {
+      body: { purchaseToken: purchase.purchaseToken }
+    });
+    if (failed) throw toApiError(failed);
+    await settlePurchase(purchase);
+  }, []);
+
   // Usage changes as books, loans, and scans are added, so reload whenever the screen is opened.
   useFocusEffect(
     useCallback(() => {
       load();
     }, [load])
   );
+
+  // Play's own price for this country, and anything the store is still holding.
+  //
+  // A purchase the server never heard about is the one failure that costs somebody money for
+  // nothing — the app dying between Play taking the payment and the token being sent. Retrying it
+  // here is quiet on purpose: there is nothing for the reader to do about it, and it is normally
+  // a no-op. Store trouble never surfaces as a screen error either, because the plan screen has
+  // to keep working for people who are not buying anything.
+  useFocusEffect(
+    useCallback(() => {
+      if (!BILLING_AVAILABLE) return;
+      let live = true;
+
+      (async () => {
+        try {
+          const available = await premiumOffer();
+          if (live) setOffer(available);
+        } catch {
+          // Leaves the fallback price showing.
+        }
+
+        try {
+          const held = await unfinishedPurchases();
+          if (!held.length) return;
+          for (const purchase of held) await register(purchase);
+          if (live) load();
+        } catch {
+          // Tried again next time this screen is opened.
+        }
+      })();
+
+      return () => {
+        live = false;
+      };
+    }, [load, register])
+  );
+
+  const upgrade = async () => {
+    setBuyError(null);
+    setBuying(true);
+    try {
+      const purchase = await buyPremium();
+      // Null means they closed Play's sheet. Backing out of a payment is not a failure and gets
+      // no message: the screen is simply as it was.
+      if (purchase) {
+        await register(purchase);
+        await load();
+      }
+    } catch (err) {
+      setBuyError(errorMessage(err));
+    } finally {
+      setBuying(false);
+    }
+  };
 
   if (!data) {
     return (
@@ -182,23 +262,57 @@ export default function PlanScreen() {
             Compare plans
           </ThemedText>
           {plans.map((plan) => (
-            <PlanCard key={plan.plan} plan={plan} current={plan.plan === entitlements.plan} />
+            <PlanCard
+              key={plan.plan}
+              plan={plan}
+              current={plan.plan === entitlements.plan}
+              price={plan.plan === 'premium' ? offer?.displayPrice : undefined}
+            />
           ))}
-          <Banner tone="plan">Premium is $24.99 a year through Google Play. Upgrading in the app is coming soon.</Banner>
+          {entitlements.plan === 'free' ? (
+            BILLING_AVAILABLE ? (
+              <>
+                {/* Play's price, not ours, whenever the store has answered: Google converts it
+                    per country, so our own "$24.99" is right in exactly one market. */}
+                <Button
+                  title={offer ? `Upgrade to Premium — ${offer.displayPrice}` : 'Upgrade to Premium'}
+                  onPress={upgrade}
+                  loading={buying}
+                />
+                {buyError ? <FieldError message={buyError} /> : null}
+                <ThemedText type="small" themeColor="textSecondary" style={styles.note}>
+                  Billed by Google Play, and cancelled there too.
+                </ThemedText>
+              </>
+            ) : (
+              <Banner tone="plan">Premium is bought in the BookMack Android app, through Google Play.</Banner>
+            )
+          ) : entitlements.subscription?.provider === 'google_play' ? (
+            // Google requires a Play-billed subscription to be cancelled in the Play Store, and
+            // the server refuses to do it (400 MANAGED_BY_GOOGLE_PLAY). So this is a door, not a
+            // Cancel button that could only ever fail.
+            <Button
+              title="Manage in Play Store"
+              variant="secondary"
+              onPress={() => {
+                void openPlaySubscriptions();
+              }}
+            />
+          ) : null}
         </View>
       </ScrollView>
     </ThemedView>
   );
 }
 
-function PlanCard({ plan, current }: { plan: PlanInfo; current: boolean }) {
+function PlanCard({ plan, current, price }: { plan: PlanInfo; current: boolean; price?: string }) {
   return (
     <View style={[styles.card, current && styles.cardCurrent]}>
       <View style={styles.planHeader}>
         <View>
           <ThemedText type="h3">{PLAN_LABELS[plan.plan]}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {PLAN_PRICES[plan.plan]}
+            {price ?? PLAN_PRICES[plan.plan]}
           </ThemedText>
         </View>
         {current ? <Badge label="Current plan" tone="brand" style={styles.badge} /> : null}
