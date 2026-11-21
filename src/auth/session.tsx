@@ -3,6 +3,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useState, type Pro
 import { Platform } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
+import { requestGoogleIdToken } from '@/auth/google';
 import { registerForPush, unregisterPush } from '@/notifications/push';
 import { toApiError } from '@/api/errors';
 import { refreshTokens, tokens } from '@/auth/tokens';
@@ -17,6 +18,9 @@ type SessionState =
 type SessionContextValue = SessionState & {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
+  // Resolves true when a session started, false when the person dismissed Google's sheet.
+  // Cancelling is not a failure and must not reach the screen as one.
+  signInWithGoogle: () => Promise<boolean>;
   // Resolves with the now-verified profile. It does NOT sign you in — call adoptVerified.
   verifyEmail: (code: string) => Promise<Schemas['Profile']>;
   adoptVerified: (user: Schemas['Profile']) => void;
@@ -85,6 +89,20 @@ export function SessionProvider({ children }: PropsWithChildren) {
     await startSession(data.data);
   }, [startSession]);
 
+  // One endpoint for both doors: the app cannot know whether this Google account has been here
+  // before, so the server creates or links and answers 201 or 200 with the same session either way.
+  // Google only hands over an address it has verified, so there is no code step after this — the
+  // navigator goes straight to the library.
+  const signInWithGoogle = useCallback(async () => {
+    const idToken = await requestGoogleIdToken();
+    if (!idToken) return false;
+
+    const { data, error } = await api.POST('/auth/google', { body: { idToken, device: currentDevice() } });
+    if (!data) throw toApiError(error);
+    await startSession(data.data);
+    return true;
+  }, [startSession]);
+
   // Split in two on purpose. The server agreeing and the app switching are different moments,
   // and the screen needs a beat between them to show that it worked — the navigator swaps the
   // whole signed-out stack out the instant `isVerified` turns true, taking any celebration with
@@ -123,8 +141,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ ...state, signIn, signUp, verifyEmail, adoptVerified, resendVerification, signOut, updateUser }),
-    [state, signIn, signUp, verifyEmail, adoptVerified, resendVerification, signOut, updateUser]
+    () => ({ ...state, signIn, signUp, signInWithGoogle, verifyEmail, adoptVerified, resendVerification, signOut, updateUser }),
+    [state, signIn, signUp, signInWithGoogle, verifyEmail, adoptVerified, resendVerification, signOut, updateUser]
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

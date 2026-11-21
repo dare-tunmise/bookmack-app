@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
+import { GOOGLE_SIGN_IN_AVAILABLE, GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
 import { useSession } from '@/auth/session';
 import { AuthScreen, rise } from '@/components/auth-screen';
 import { Button } from '@/components/button';
@@ -17,11 +17,12 @@ import { INVALID_EMAIL_MESSAGE, isValidEmail } from '@/lib/validation';
 const FIELDS = ['email', 'password'] as const;
 
 export default function SignInScreen() {
-  const { signIn } = useSession();
+  const { signIn, signInWithGoogle } = useSession();
   const snackbar = useSnackbar();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const errors = useFormErrors(FIELDS, {
     byCode: { INVALID_CREDENTIALS: { field: 'password', message: 'Incorrect email or password' } },
     messages: { email: INVALID_EMAIL_MESSAGE }
@@ -29,6 +30,25 @@ export default function SignInScreen() {
 
   const checkEmail = () => {
     if (email.trim() && !isValidEmail(email)) errors.setFieldError('email', INVALID_EMAIL_MESSAGE);
+  };
+
+  const continueWithGoogle = async () => {
+    if (!GOOGLE_SIGN_IN_AVAILABLE) {
+      snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE);
+      return;
+    }
+
+    errors.clearErrors();
+    setGoogleBusy(true);
+    try {
+      // True means the session changed and the navigator is already moving; false means the person
+      // dismissed Google's sheet, which needs no message at all. Only the busy flag has to be let
+      // go, and only in the second case — in the first this screen is being unmounted.
+      if (!(await signInWithGoogle())) setGoogleBusy(false);
+    } catch (err) {
+      errors.showError(err);
+      setGoogleBusy(false);
+    }
   };
 
   const submit = async () => {
@@ -54,7 +74,7 @@ export default function SignInScreen() {
       subtitle="Pick up where you left off.">
       {/* Google first here too. Whoever signed up with it has to find it in the same place. */}
       <Animated.View entering={rise(3)}>
-        <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
+        <GoogleButton onPress={continueWithGoogle} loading={googleBusy} disabled={submitting} />
       </Animated.View>
       <Animated.View entering={rise(4)}>
         <AuthDivider />
@@ -102,7 +122,7 @@ export default function SignInScreen() {
       <View style={styles.grow} />
 
       <Animated.View entering={rise(6)} style={styles.submit}>
-        <Button title="Log in" onPress={submit} loading={submitting} disabled={!email.trim() || !password} />
+        <Button title="Log in" onPress={submit} loading={submitting} disabled={googleBusy || !email.trim() || !password} />
         {errors.formError ? <FieldError message={errors.formError} /> : null}
       </Animated.View>
 

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
+import { GOOGLE_SIGN_IN_AVAILABLE, GOOGLE_SIGN_IN_UNAVAILABLE } from '@/auth/google';
 import { useSession } from '@/auth/session';
 import { AuthScreen, rise } from '@/components/auth-screen';
 import { Button } from '@/components/button';
@@ -19,13 +19,14 @@ import { INVALID_EMAIL_MESSAGE, isValidEmail } from '@/lib/validation';
 const FIELDS = ['name', 'email', 'password'] as const;
 
 export default function SignUpScreen() {
-  const { signUp } = useSession();
+  const { signUp, signInWithGoogle } = useSession();
   const snackbar = useSnackbar();
   const [showRules, setShowRules] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const errors = useFormErrors(FIELDS, {
     byCode: { EMAIL_TAKEN: { field: 'email', message: 'An account with this email already exists' } },
     messages: { email: INVALID_EMAIL_MESSAGE }
@@ -35,6 +36,25 @@ export default function SignUpScreen() {
 
   const checkEmail = () => {
     if (email.trim() && !isValidEmail(email)) errors.setFieldError('email', INVALID_EMAIL_MESSAGE);
+  };
+
+  const continueWithGoogle = async () => {
+    if (!GOOGLE_SIGN_IN_AVAILABLE) {
+      snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE);
+      return;
+    }
+
+    errors.clearErrors();
+    setGoogleBusy(true);
+    try {
+      // True means the session changed and the navigator is already moving; false means the person
+      // dismissed Google's sheet, which needs no message at all. Only the busy flag has to be let
+      // go, and only in the second case — in the first this screen is being unmounted.
+      if (!(await signInWithGoogle())) setGoogleBusy(false);
+    } catch (err) {
+      errors.showError(err);
+      setGoogleBusy(false);
+    }
   };
 
   const submit = async () => {
@@ -62,7 +82,7 @@ export default function SignUpScreen() {
       {/* Google above the form, on both screens. It is the fastest way in for most people and it
           skips the code step entirely — putting it under a form nobody filled in is burying it. */}
       <Animated.View entering={rise(3)}>
-        <GoogleButton onPress={() => snackbar.show(GOOGLE_SIGN_IN_UNAVAILABLE)} disabled={submitting} />
+        <GoogleButton onPress={continueWithGoogle} loading={googleBusy} disabled={submitting} />
       </Animated.View>
       <Animated.View entering={rise(4)}>
         <AuthDivider />
@@ -119,7 +139,7 @@ export default function SignUpScreen() {
       <View style={styles.grow} />
 
       <Animated.View entering={rise(6)} style={styles.submit}>
-      <Button title="Create account" onPress={submit} loading={submitting} disabled={!canSubmit} />
+      <Button title="Create account" onPress={submit} loading={submitting} disabled={googleBusy || !canSubmit} />
       {errors.formError ? <FieldError message={errors.formError} /> : null}
       <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
         {'By continuing you agree to the '}
