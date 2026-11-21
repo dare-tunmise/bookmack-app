@@ -50,41 +50,72 @@ const TITLE_GAP = 40;
 const SUBTITLE_GAP = 20;
 const SUBTITLE_LINE = 46;
 
+// The canvas divides into three fixed bands rather than two that move.
+//
+// The head used to grow to fit its title, so the whole composition depended on how many
+// characters were in somebody's name: on a 1080×1350 post the head was 30% of the poster for
+// "Dare's shelf" and 24% for "Oluwadarasimi's reading year 2026", and the art area silently
+// absorbed the difference. Now the head is a fixed share and the title is sized to fit inside it,
+// so a poster is the same shape whoever makes one.
+//
+// These are the shares that preserve today's largest title exactly: 0.30 of a post leaves room
+// for the 128px cap, 0.244 of a story for the 150px one. Nothing gets smaller than it was.
+const HEAD_SHARE = { post: 0.3, story: 0.244 } as const;
+
+// A band at the foot, where the handle now lives. The art used to run flush to the bottom edge,
+// which left the poster a block of text above a collage that fell off the end of the canvas.
+const FOOTER_SHARE = 0.06;
+
 type Plan = { render: () => React.ReactNode };
 
-// Rows that always fill. Pick the row count that brings each tile closest to a cover's shape,
-// spread the books across those rows, and let every row span the full width — so the rectangle is
-// complete whatever the number of books, and covers crop a little rather than leaving gaps.
+// How much an empty cell in the last row costs, against the distortion score. Some emptiness is
+// the price of a grid that lines up; too much and the poster looks unfinished, so it is priced
+// rather than ignored.
+const EMPTY_PENALTY = 0.6;
+
+// A last row holding less than half a row's worth reads as a stranded cover rather than the end
+// of a grid — seven books over three columns leaves exactly one, centred under six. Priced high
+// enough to push the choice to a shorter, fuller grid: seven becomes [4, 3] instead of [3, 3, 1].
+const STRANDED_ROW_PENALTY = 0.25;
+
+// A real grid: one cell size for the whole collage, and a short last row centred under the rest.
+//
+// It used to spread the remainder across the rows — ten books over three rows became [4, 3, 3] —
+// with every row stretched to the full width. That meant a row of four had 270px cells and a row
+// of three had 360px cells, so no column lined up with the one above it and the covers were
+// visibly different sizes. The row count was even chosen by scoring `ceil(count / rows)` columns,
+// a uniform grid that was then not what got drawn.
 function planGrid(books: PosterBook[], artHeight: number): Plan {
   const count = books.length;
-  let best = { rows: 1, score: Infinity };
+  let best = { rows: 1, columns: count, score: Infinity };
 
   for (let rows = 1; rows <= Math.min(count, 10); rows += 1) {
     const columns = Math.ceil(count / rows);
     const natural = (POSTER_WIDTH / columns) * COVER_RATIO;
-    const score = distortion(artHeight / rows, natural);
-    if (score < best.score) best = { rows, score };
+    const empty = (rows * columns - count) / (rows * columns);
+    const lastRow = count - (rows - 1) * columns;
+    const stranded = rows > 1 && lastRow / columns < 0.5 ? STRANDED_ROW_PENALTY : 0;
+    const score = distortion(artHeight / rows, natural) + empty * EMPTY_PENALTY + stranded;
+    if (score < best.score) best = { rows, columns, score };
   }
 
-  const { rows } = best;
+  const { rows, columns } = best;
   const rowHeight = artHeight / rows;
-  const base = Math.floor(count / rows);
-  const extra = count % rows;
+  const cellWidth = POSTER_WIDTH / columns;
   const lines: PosterBook[][] = [];
-  let index = 0;
   for (let row = 0; row < rows; row += 1) {
-    const size = base + (row < extra ? 1 : 0);
-    lines.push(books.slice(index, index + size));
-    index += size;
+    lines.push(books.slice(row * columns, row * columns + columns));
   }
 
   return {
     render: () => (
       <View>
         {lines.map((line, row) => (
-          <View key={row} style={{ flexDirection: 'row', height: rowHeight }}>
+          // Centred rather than left-aligned, so the one short row reads as the end of a grid
+          // instead of a gap torn out of its right-hand side.
+          <View key={row} style={[styles.gridRow, { height: rowHeight }]}>
             {line.map((book) => (
-              <View key={book.id} style={styles.cell}>
+              <View key={book.id} style={{ width: cellWidth, height: rowHeight }}>
                 <Cover book={book} />
               </View>
             ))}
@@ -237,19 +268,25 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
   const height = POSTER_SIZES[size];
   const story = size === 'story';
 
-  // The title is sized to fit its own line, and the head is then sized to fit the title. Fixing
-  // the head at a round number and hoping the words fit is what cropped "Dare's shelf" and then
-  // pushed the line under it off the bottom — the art simply started where the text still was.
   const padTop = story ? 90 : 66;
   const padBottom = story ? 70 : 54;
-  const inner = POSTER_WIDTH - 144;
-  // Bricolage ExtraBold runs about 0.52em per character at this weight; the cap is the size we
-  // would like, the division is the size that fits.
-  const titleSize = Math.min(story ? 150 : 128, Math.floor(inner / Math.max(6, title.length * 0.52)));
-  const titleLine = Math.ceil(titleSize * 1.05);
-  const headHeight = padTop + BRAND_ROW + TITLE_GAP + titleLine + SUBTITLE_GAP + SUBTITLE_LINE + padBottom;
 
-  const artHeight = height - headHeight;
+  const headHeight = Math.round(height * HEAD_SHARE[size]);
+  const footerHeight = Math.round(height * FOOTER_SHARE);
+  const artHeight = height - headHeight - footerHeight;
+
+  const inner = POSTER_WIDTH - 144;
+  // Two ceilings, and the title takes the lower. The first is the width it has to fit across —
+  // Bricolage ExtraBold runs about 0.52em per character at this weight. The second is the room
+  // the fixed head leaves for it, which is what stops a long title pushing the line under it off
+  // the bottom of the head: the head no longer moves, so the type has to give.
+  const titleRoom = headHeight - (padTop + BRAND_ROW + TITLE_GAP + SUBTITLE_GAP + SUBTITLE_LINE + padBottom);
+  const titleSize = Math.min(
+    story ? 150 : 128,
+    Math.floor(inner / Math.max(6, title.length * 0.52)),
+    Math.floor(titleRoom / 1.05)
+  );
+  const titleLine = Math.ceil(titleSize * 1.05);
   const plan = (layout === 'grid' ? planGrid : planMosaic)(books, artHeight);
 
   return (
@@ -260,8 +297,6 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
             <BrandMark size={44} />
             <ThemedText style={[styles.markText, { color: palette.title }]}>BookMack</ThemedText>
           </View>
-          {/* The address is the loop: whoever sees this poster can reach the shelf it came from. */}
-          <ThemedText style={[styles.handle, { color: palette.quiet }]}>{handle}</ThemedText>
         </View>
 
         <View>
@@ -280,18 +315,24 @@ export function Poster({ books, title, subtitle, handle, size, layout, theme }: 
       {/* Fixed height with the overflow clipped: rows are sized to fill it, and a cover crops a
           little rather than leaving a band of background. */}
       <View style={{ height: artHeight, overflow: 'hidden' }}>{plan.render()}</View>
+
+      {/* The address is the loop: whoever sees this poster can reach the shelf it came from. It
+          sits here rather than beside the brand mark so the collage has a foot to stand on. */}
+      <View style={[styles.footer, { height: footerHeight }]}>
+        <ThemedText style={[styles.handle, { color: palette.quiet }]}>{handle}</ThemedText>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cell: {
-    flex: 1,
-    minWidth: 0
-  },
   fill: {
     width: '100%',
     height: '100%'
+  },
+  gridRow: {
+    flexDirection: 'row',
+    justifyContent: 'center'
   },
   jacket: {
     padding: '9%',
@@ -356,6 +397,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.display,
     fontSize: 31,
     letterSpacing: -0.5
+  },
+  footer: {
+    paddingHorizontal: 72,
+    justifyContent: 'center'
   },
   handle: {
     fontFamily: Fonts.bodySemiBold,
