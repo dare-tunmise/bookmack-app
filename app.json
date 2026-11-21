@@ -9,6 +9,10 @@
     "userInterfaceStyle": "light",
     "android": {
       "package": "com.bookmack.app",
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#9FE870",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -51,9 +55,7 @@
         {
           "savePhotosPermission": "Allow BookMack to save your shelf posters to your photos.",
           "isAccessMediaLocationEnabled": false,
-          "granularPermissions": [
-            "photo"
-          ]
+          "granularPermissions": []
         }
       ],
       [

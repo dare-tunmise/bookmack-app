@@ -59,7 +59,10 @@ export function GenrePoster({
       const { captureRef } = await import('react-native-view-shot');
       const MediaLibrary = await import('expo-media-library');
 
-      const permission = await MediaLibrary.requestPermissionsAsync();
+      // Write-only, like the shelf poster. Saving is all this does, and the full request asks
+      // for read access to every photo on the phone — which Play makes you justify, and which
+      // would throw here anyway now that READ_MEDIA_IMAGES is not in the manifest.
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
       if (!permission.granted) {
         setNotice('BookMack needs permission to save to your photos.');
         return;
