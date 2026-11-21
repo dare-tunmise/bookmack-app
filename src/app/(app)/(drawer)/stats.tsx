@@ -14,7 +14,7 @@ import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { YearShelf } from '@/components/year-shelf';
-import { Colors, Fonts, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { Colors, Fonts, MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
 
 type Overview = Schemas['StatsOverview'];
 type YearShelfData = Schemas['YearShelf'];
@@ -573,19 +573,17 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyBold,
     letterSpacing: 1.4
   },
+  // The display token rather than numbers of its own. This was 40/43 at -1.2 letterSpacing —
+  // larger and tighter than anything else in the app, including the scale's own largest size —
+  // which made the hero tower over a page whose next heading is a 12px eyebrow. Spreading the
+  // token means it cannot drift back out of the scale.
   heroHeadline: {
-    fontFamily: Fonts.display,
-    fontSize: 40,
-    lineHeight: 43,
-    letterSpacing: -1.2,
+    ...Typography.display,
     color: '#F2F8EC',
     marginTop: Spacing.two
   },
   heroCount: {
-    fontFamily: Fonts.display,
-    fontSize: 40,
-    lineHeight: 43,
-    letterSpacing: -1.2,
+    ...Typography.display,
     color: Colors.accent
   },
   heroSub: {
