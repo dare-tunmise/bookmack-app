@@ -19,12 +19,32 @@ const apiUrlFault = (projectRoot: string): string | null => {
   // `expo export` reads this config *before* it loads the .env files, so without this the check
   // would fail a perfectly good local export. This is the loader Expo itself uses, and it is
   // idempotent — on EAS the variables are already real process env and nothing here changes them.
+  //
+  // EXPO_NO_DOTENV is cleared across the call on purpose. `eas env:set` and other eas-cli
+  // commands read this config with that flag set, the loader honours it and loads nothing, and
+  // the guard then failed a project that was configured perfectly well — eas-cli reported it as
+  // `expo config --json exited with non-zero code: 1`, which names neither the flag nor the
+  // variable. The flag says how the caller wants config read; it says nothing about whether a
+  // build would have the value, which is the only question here. It does not weaken the EAS
+  // case either: .env files are gitignored, so they are not in the upload and there is nothing
+  // for this to find there — real process env still decides.
+  // `force` is needed as well as the flag. The CLI has usually run the loader already, and it
+  // leaves a `__EXPO_ENV_LOADED` marker behind that makes a second call return 'skipped' without
+  // reading anything — so under eas-cli the flag made it load nothing and the marker then stopped
+  // it trying again. Forcing cannot overwrite an EAS-provided value: the loader skips every key
+  // already defined in the system environment. `silent` keeps its NODE_ENV notice out of logs.
+  const noDotenv = process.env.EXPO_NO_DOTENV;
   try {
+    delete process.env.EXPO_NO_DOTENV;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    (require('@expo/env') as { loadProjectEnv: (dir: string) => unknown }).loadProjectEnv(projectRoot);
+    (require('@expo/env') as {
+      loadProjectEnv: (dir: string, options?: { force?: boolean; silent?: boolean }) => unknown;
+    }).loadProjectEnv(projectRoot, { force: true, silent: true });
   } catch {
     // Not fatal: if the loader moves, fall back to whatever is already in the environment, which
     // is all EAS ever had anyway.
+  } finally {
+    if (noDotenv !== undefined) process.env.EXPO_NO_DOTENV = noDotenv;
   }
 
   const value = process.env.EXPO_PUBLIC_API_URL?.trim();
