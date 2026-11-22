@@ -1,808 +1,530 @@
 import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import Svg, { Rect } from 'react-native-svg';
 
 import { api, type Schemas } from '@/api/client';
 import { errorMessage, toApiError } from '@/api/errors';
 import { AppBar } from '@/components/app-bar';
 import { BookCover } from '@/components/book-cover';
 import { Icon } from '@/components/icon';
-import { SegmentedControl } from '@/components/segmented-control';
+import { MonthBars } from '@/components/month-bars';
+import { ShareSheet } from '@/components/share-sheet';
 import { Skeleton } from '@/components/skeleton';
+import { useSnackbar } from '@/components/snackbar';
 import { FieldError } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { YearShelf } from '@/components/year-shelf';
-import { Colors, Fonts, MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
+import { useSession } from '@/auth/session';
+import { Colors, Fonts, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import {
+  MONTHS,
+  deriveYear,
+  genreLine,
+  goalLine,
+  initials,
+  lendingLine,
+  paceLine,
+  type YearStats
+} from '@/lib/year-stats';
 
 type Overview = Schemas['StatsOverview'];
-type YearShelfData = Schemas['YearShelf'];
-type ActivityDay = Schemas['ActivityDay'];
+type Shelf = Schemas['YearShelf'];
+type Loan = Schemas['Loan'];
 
-// Stats that look like what they are measuring.
+// Stats with the noise taken out.
 //
-// The year shelf is the only big visual, and it could not belong to any other app because the
-// marks are the books. Everything under it is written in sentences — "You've finished 24 books"
-// reads like a person talking, "Books: 24" reads like a database — and the sections are divided
-// by space and hairlines rather than boxed into cards, which is the thing that makes a screen
-// feel like a dashboard instead of a page.
+// One number against a goal, one chart you can scrub, and a few plain sentences. Everything here
+// answers a question somebody would actually ask — am I on track, what did I read, who has my
+// books — and anything that was only trivia is gone: the ribbon, the genre donut, the activity
+// heatmap, the theme bars, the on-time meter and the tiles.
 //
-// What this replaced: a grid of number tiles, a donut, a heatmap and a loans-per-month bar chart,
-// each inside its own card. Every one of them was a chart you have seen in ten other apps.
+// The covers are the only colour on the page. That is deliberate: a palette per chart was what
+// made the old screen look like a dashboard rather than something about books.
 
-const WEEKS = 53;
-const RIBBON_HEIGHT = 64;
-const MONTH_LETTERS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-];
+// The design's own greys, neither of which is a palette token: the row hairline is lighter than
+// `border`, and faint text sits between `textSecondary` and `disabledText`.
+const HAIRLINE = '#ECEFE8';
+const FAINT = '#97A391';
 
-// Genre is a category, so it gets colours that stay apart from one another. Deliberately not the
-// jacket palette: those are meant to look like books, and these are meant to look like a key.
-const GENRE_COLORS = ['#227E00', '#1A5EC2', '#BB8800', '#812B8F', '#00919F', '#8A9784'];
+// Darkest first, so the commonest genre is the strongest mark.
+const RAMP = ['#163300', '#347821', '#6FA956', '#A9CF96', '#D3E6C8'];
 
-type Range = 'year' | 'all';
+const DAY_MS = 86_400_000;
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const RANGES = [
-  { key: 'year', label: String(new Date().getFullYear()) },
-  { key: 'all', label: 'All time' }
-] as const satisfies readonly { key: Range; label: string }[];
+type Loaded = { overview: Overview; shelf: Shelf; loans: Loan[] };
 
-// `at` is when this was fetched. Everything time-based reads from it rather than calling the
-// clock while rendering, so a re-render cannot quietly change the numbers under the reader.
-type Loaded = { overview: Overview; shelf: YearShelfData; activity: ActivityDay[]; at: number };
-
-const plural = (count: number, one: string, many = `${one}s`) => (count === 1 ? one : many);
+// "4 days late" or "Due back Friday": a weekday while it is still this week, a date after that,
+// because "due back Tuesday" three weeks out tells you nothing.
+function loanStatus(loan: Loan, now: Date) {
+  const due = new Date(loan.dueAt);
+  const days = Math.floor((now.getTime() - due.getTime()) / DAY_MS);
+  if (loan.status === 'overdue' || days > 0) {
+    return { text: days <= 0 ? 'Due back today' : `${days} day${days === 1 ? '' : 's'} late`, late: days > 0 };
+  }
+  const ahead = Math.ceil((due.getTime() - now.getTime()) / DAY_MS);
+  if (ahead <= 6) return { text: `Due back ${WEEKDAYS[due.getDay()]}`, late: false };
+  return { text: `Due back ${due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`, late: false };
+}
 
 export default function StatsScreen() {
+  const navigation = useNavigation();
+  const snackbar = useSnackbar();
+  const { user } = useSession();
+
+  const now = useMemo(() => new Date(), []);
+  const thisYear = now.getUTCFullYear();
+  const firstYear = user?.createdAt ? new Date(user.createdAt).getUTCFullYear() : thisYear;
+
+  const [year, setYear] = useState(thisYear);
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [range, setRange] = useState<Range>('year');
-  const [shelfWidth, setShelfWidth] = useState(0);
-  const [ribbonWidth, setRibbonWidth] = useState(0);
-  // The drawer layout renders one AppBar for every screen. This screen needs the range toggle in
-  // it, so it hands the layout a header rather than drawing a second bar underneath the first —
-  // which is exactly what made the page start halfway down.
-  const navigation = useNavigation();
+  const [month, setMonth] = useState(now.getUTCMonth());
+  const [sharing, setSharing] = useState(false);
+  const [nudged, setNudged] = useState<string[]>([]);
 
-  const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
-    if (mode === 'refresh') setRefreshing(true);
-    try {
-      const [overview, shelf, activity] = await Promise.all([
-        api.GET('/stats', {}),
-        api.GET('/stats/year/shelf', { params: { query: {} } }),
-        api.GET('/stats/activity', { params: { query: { weeks: WEEKS } } })
-      ]);
-      if (!overview.data) throw toApiError(overview.error);
-      if (!shelf.data) throw toApiError(shelf.error);
-      setData({
-        overview: overview.data.data,
-        shelf: shelf.data.data,
-        // The ribbon is the one part that can be missing without the screen being wrong.
-        activity: activity.data?.data ?? [],
-        at: Date.now()
-      });
-      setError(null);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (forYear: number, mode: 'initial' | 'refresh' = 'initial') => {
+      if (mode === 'refresh') setRefreshing(true);
+      try {
+        const [overview, shelf, loans] = await Promise.all([
+          api.GET('/stats', {}),
+          api.GET('/stats/year/shelf', { params: { query: { year: forYear } } }),
+          api.GET('/loans', { params: { query: { status: 'active', limit: 20 } } })
+        ]);
+        if (!overview.data) throw toApiError(overview.error);
+        if (!shelf.data) throw toApiError(shelf.error);
+        setData({
+          overview: overview.data.data,
+          shelf: shelf.data.data,
+          // Who has your books is the one part that can be missing without the page being wrong.
+          loans: loans.data?.data ?? []
+        });
+        setError(null);
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    []
+  );
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      load(year);
+    }, [load, year])
   );
 
   useEffect(() => {
-    // The plain action rather than DrawerActions.openDrawer(): @react-navigation/native is a
+    // The plain action rather than DrawerActions.openDrawer(): @react-navigation/native is only a
     // transitive dependency here, and importing from a package this app never declared is how a
     // working build breaks on someone else's install.
     const openDrawer = () => navigation.dispatch({ type: 'OPEN_DRAWER' });
-
     navigation.setOptions({
-      header: () => (
-        <AppBar left={{ icon: 'menu', label: 'Open menu', onPress: openDrawer }}>
-          <View style={styles.barRow}>
-            <ThemedText type="subtitle" accessibilityRole="header" numberOfLines={1} style={styles.barTitle}>
-              Stats
-            </ThemedText>
-            {/* A fixed width, because the control sizes its segments from its own measured width —
-                left to flex against a title it collapsed to a sliver. */}
-            <View style={styles.range}>
-              <SegmentedControl accessibilityLabel="Range" options={RANGES} value={range} onChange={setRange} />
-            </View>
-          </View>
-        </AppBar>
-      )
+      header: () => <AppBar title="Stats" left={{ icon: 'menu', label: 'Open menu', onPress: openDrawer }} />
     });
-  }, [navigation, range]);
+  }, [navigation]);
 
-  const weeks = useMemo(() => buildWeeks(data?.activity ?? [], data?.shelf.year, data?.at), [data]);
-  const monthPages = useMemo(() => {
-    const totals = Array<number>(12).fill(0);
-    weeks.forEach((week) => {
-      totals[week.month] += week.pages;
-    });
-    return totals;
-  }, [weeks]);
+  const stats: YearStats | null = useMemo(() => (data ? deriveYear(data.shelf, now) : null), [data, now]);
 
-  if (!data) {
+  // Overdue first, then soonest due. At most two, as the design asks — this is a glance, and the
+  // Loans screen is one tap away for the rest.
+  const showing = useMemo(() => {
+    const open = data?.loans.filter((loan) => loan.book && loan.borrower) ?? [];
+    return [...open]
+      .sort((a, b) => {
+        const late = Number(b.status === 'overdue') - Number(a.status === 'overdue');
+        return late || new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
+      })
+      .slice(0, 2);
+  }, [data]);
+
+  const nudge = async (loan: Loan) => {
+    setNudged((sent) => [...sent, loan.id]);
+    try {
+      const { error: apiError, response } = await api.POST('/loans/{id}/reminder/send', {
+        params: { path: { id: loan.id } }
+      });
+      if (!response.ok) throw toApiError(apiError);
+      snackbar.show(`Reminder sent to ${loan.borrower?.name ?? 'them'}`);
+    } catch (err) {
+      // Put the button back: a "Sent" that never sent is worse than an error.
+      setNudged((sent) => sent.filter((id) => id !== loan.id));
+      snackbar.show(errorMessage(err));
+    }
+  };
+
+  if (!data || !stats) {
     return (
-      <ThemedView style={styles.screen}>
+      <ThemedView style={styles.flex}>
         <View style={styles.loading}>
-          {error ? <FieldError message={error} /> : <Skeleton width="100%" height={320} radius={Radius.card} />}
+          {error ? (
+            <>
+              <FieldError message={error} />
+              <Pressable accessibilityRole="button" onPress={() => load(year)}>
+                <ThemedText style={styles.link}>Try again</ThemedText>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Skeleton width="60%" height={104} radius={Radius.card} />
+              <Skeleton width="100%" height={98} radius={Radius.card} />
+              <Skeleton width="100%" height={180} radius={Radius.card} />
+            </>
+          )}
         </View>
       </ThemedView>
     );
   }
 
-  const { overview, shelf } = data;
-  const thisYear = range === 'year';
-  const books = shelf.books;
+  // The open month is derived, not stored: stepping back to a year that ended in June must not
+  // leave the list pointing at November. Holding it in state and correcting it in an effect
+  // works, but it renders twice and the lint rule is right to object — `month` keeps what was
+  // asked for, and this is what the page can actually show.
+  const openMonth = Math.min(month, stats.lastMonth);
 
-  const finished = thisYear ? overview.booksReadThisYear : overview.booksRead;
-  const pages = thisYear ? books.reduce((sum, book) => sum + (book.pageCount ?? 0), 0) : overview.pagesRead;
-  const daysIn = Math.max(1, Math.round((data.at - Date.UTC(shelf.year, 0, 1)) / 86400000));
-  const perDay = thisYear && pages ? Math.round(pages / daysIn) : null;
-
-  // Where each month starts in the ribbon and how many weeks it owns, so its letter can sit over
-  // its own bars.
-  const monthSpans: { month: number; start: number; weeks: number }[] = [];
-  weeks.forEach((week, index) => {
-    const last = monthSpans[monthSpans.length - 1];
-    if (last && last.month === week.month) last.weeks += 1;
-    else monthSpans.push({ month: week.month, start: index, weeks: 1 });
-  });
-
-  const bestMonth = monthPages.indexOf(Math.max(...monthPages));
-  const hasMonths = monthPages[bestMonth] > 0;
-  const peak = Math.max(...weeks.map((week) => week.pages), 1);
-
-  const highlights = buildHighlights(books);
-  const genres = buildGenres(books);
+  const goal = user?.readingGoal ?? null;
+  const caption = goalLine(stats, goal, now);
+  const genre = genreLine(stats);
+  const lending = lendingLine(stats, now);
+  const inMonth = stats.books.filter((book) => new Date(book.finishedAt).getUTCMonth() === openMonth);
+  // What is on the shelf and not read: the books that are neither finished nor in progress. The
+  // API counts those three separately rather than serving "unread", so it is subtraction here.
+  const unread = Math.max(0, data.overview.books - data.overview.booksRead - data.overview.booksReading);
+  const firstName = (user?.name ?? '').trim().split(/\s+/)[0] || 'My';
 
   return (
-    <ThemedView style={styles.screen}>
+    <ThemedView style={styles.flex}>
       <ScrollView
-        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} colors={[Colors.brand]} />
+          <RefreshControl refreshing={refreshing} onRefresh={() => load(year, 'refresh')} colors={[Colors.brand]} />
         }>
         {error ? <FieldError message={error} /> : null}
 
-        <View
-          style={styles.hero}
-          onLayout={(event) => setShelfWidth(event.nativeEvent.layout.width - Spacing.three * 2)}>
-          <ThemedText type="caption" style={styles.eyebrow}>
-            {thisYear ? `${shelf.year} so far` : 'Since you started'}
-          </ThemedText>
+        <View style={styles.headRow}>
+          <View style={styles.yearRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Previous year"
+              disabled={year <= firstYear}
+              onPress={() => setYear((current) => current - 1)}
+              style={({ pressed }) => [styles.step, (pressed || year <= firstYear) && styles.stepDim]}>
+              <Icon name="chevronLeft" color={Colors.text} size={20} />
+            </Pressable>
+            <ThemedText style={styles.yearValue}>{year}</ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Next year"
+              disabled={year >= thisYear}
+              onPress={() => setYear((current) => current + 1)}
+              style={({ pressed }) => [styles.step, (pressed || year >= thisYear) && styles.stepDim]}>
+              <Icon name="chevronRight" color={Colors.text} size={20} />
+            </Pressable>
+          </View>
 
-          <ThemedText style={styles.heroHeadline}>
-            You&apos;ve finished{' '}
-            <ThemedText style={styles.heroCount}>
-              {finished} {plural(finished, 'book')}.
-            </ThemedText>
-          </ThemedText>
-
-          <ThemedText type="small" style={styles.heroSub}>
-            <ThemedText type="small" style={styles.heroSubStrong}>
-              {pages.toLocaleString()} pages
-            </ThemedText>
-            {perDay ? `, about ${perDay.toLocaleString()} a day.` : '.'}
-          </ThemedText>
-
-          {thisYear && books.length > 0 ? (
-            <>
-              {shelfWidth > 0 ? (
-                <View style={styles.shelfWrap}>
-                  <YearShelf books={books} width={shelfWidth} height={92} labelColor="#9DB48C" />
-                </View>
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => router.push('/poster')}
-                style={({ pressed }) => [styles.make, pressed && styles.pressed]}>
-                <Icon name="stats" color="#163300" size={19} />
-                <ThemedText type="button" style={styles.makeText}>
-                  Make a poster of your year
-                </ThemedText>
-              </Pressable>
-              <ThemedText type="caption" style={styles.heroNote}>
-                Each spine is a book, as thick as its page count.
-              </ThemedText>
-            </>
-          ) : thisYear ? (
-            <ThemedText type="small" style={styles.heroNote}>
-              Finish a book and your year starts taking shape here.
-            </ThemedText>
-          ) : (
-            <ThemedText type="caption" style={styles.heroNote}>
-              The shelf is drawn one year at a time. Switch to {shelf.year} to see it.
-            </ThemedText>
-          )}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setSharing(true)}
+            style={({ pressed }) => [styles.sharePill, pressed && styles.pressed]}>
+            <Icon name="share" color={Colors.text} size={19} />
+            <ThemedText style={styles.shareLabel}>Share</ThemedText>
+          </Pressable>
         </View>
 
-        {thisYear && highlights.length ? (
-          <Section eyebrow="Highlights">
-            <View style={styles.highlights}>
-              {highlights.map((item) => (
-                <View key={item.key} style={styles.highlight}>
-                  <BookCover title={item.book.title} thumbnail={item.book.thumbnail} size={30} />
-                  <View style={styles.highlightText}>
-                    <ThemedText type="caption" style={styles.kicker}>
-                      {item.key}
+        <ThemedText style={styles.label}>Books finished</ThemedText>
+        <View style={styles.bigRow}>
+          <ThemedText style={styles.bigNumber}>{stats.count}</ThemedText>
+          {goal ? <ThemedText style={styles.bigOf}>{`of ${goal}`}</ThemedText> : null}
+        </View>
+
+        {goal ? (
+          <>
+            <View style={styles.goalTrack}>
+              <View style={[styles.goalFill, { width: `${Math.min(100, (stats.count / goal) * 100)}%` }]} />
+            </View>
+            {caption ? <ThemedText style={styles.caption}>{caption}</ThemedText> : null}
+          </>
+        ) : (
+          <Pressable accessibilityRole="button" onPress={() => router.push('/reading-goal')}>
+            <ThemedText style={[styles.link, styles.captionLink]}>Set a goal</ThemedText>
+          </Pressable>
+        )}
+
+        <View style={styles.trio}>
+          <View style={styles.trioCell}>
+            <ThemedText style={styles.trioValue}>{stats.pages.toLocaleString('en-GB')}</ThemedText>
+            <ThemedText style={styles.trioLabel}>pages</ThemedText>
+          </View>
+          <View style={styles.trioCell}>
+            <ThemedText style={styles.trioValue}>{stats.daysPerBook ?? '—'}</ThemedText>
+            <ThemedText style={styles.trioLabel}>days per book</ThemedText>
+          </View>
+          <View style={styles.trioCell}>
+            <ThemedText style={styles.trioValue}>{stats.pagesPerDay}</ThemedText>
+            <ThemedText style={styles.trioLabel}>pages a day</ThemedText>
+          </View>
+        </View>
+
+        <View style={styles.block}>
+          <View style={styles.blockHead}>
+            <ThemedText style={styles.blockTitle}>By month</ThemedText>
+            <ThemedText style={styles.selected}>
+              {`${MONTHS[openMonth]} · ${inMonth.length ? `${inMonth.length} book${inMonth.length === 1 ? '' : 's'}` : 'none'}`}
+            </ThemedText>
+          </View>
+
+          <MonthBars counts={stats.byMonth} selected={openMonth} lastMonth={stats.lastMonth} onSelect={setMonth} />
+
+          <View style={styles.list}>
+            {inMonth.length ? (
+              inMonth.map((book, position) => (
+                <View key={book.id} style={[styles.row, position > 0 && styles.rowDivided]}>
+                  <BookCover title={book.title} thumbnail={book.thumbnail} author={book.author} size={40} />
+                  <View style={styles.rowText}>
+                    <ThemedText numberOfLines={2} style={styles.rowTitle}>
+                      {book.title}
                     </ThemedText>
-                    <ThemedText type="smallBold" numberOfLines={2}>
-                      {item.book.title}
+                    <ThemedText numberOfLines={1} style={styles.rowAuthor}>
+                      {book.author}
                     </ThemedText>
                   </View>
-                  <View style={styles.highlightValue}>
-                    <ThemedText style={styles.valueNumber}>{item.value}</ThemedText>
-                    <ThemedText type="caption" themeColor="textSecondary">
-                      {item.unit}
-                    </ThemedText>
-                  </View>
+                  {typeof book.days === 'number' ? (
+                    <ThemedText style={styles.rowDays}>{`${book.days} day${book.days === 1 ? '' : 's'}`}</ThemedText>
+                  ) : null}
                 </View>
-              ))}
-            </View>
-          </Section>
-        ) : null}
+              ))
+            ) : (
+              <ThemedText style={styles.empty}>{`Nothing finished in ${MONTHS[openMonth]}.`}</ThemedText>
+            )}
+          </View>
+        </View>
 
-        {hasMonths ? (
-          <Section eyebrow="When you read">
-            <Sentence>
-              Your best month was <Em>{MONTH_NAMES[bestMonth]}</Em>, with {monthPages[bestMonth].toLocaleString()}{' '}
-              pages.
-            </Sentence>
-            <View
-              style={styles.ribbon}
-              onLayout={(event) => setRibbonWidth(event.nativeEvent.layout.width)}>
-              {ribbonWidth > 0 ? (
-                <>
-                  {/* Drawn in real pixels against the measured width. It used to be a viewBox at
-                      width="100%", which with the default preserveAspectRatio letterboxes rather
-                      than fills — the bars ended up small and floating in the middle of the box. */}
-                  <Svg width={ribbonWidth} height={RIBBON_HEIGHT}>
-                    {weeks.map((week, index) => {
-                      const slot = ribbonWidth / weeks.length;
-                      const height = week.pages ? Math.max(2, (week.pages / peak) * (RIBBON_HEIGHT - 4)) : 0;
-                      return (
-                        <Rect
-                          key={index}
-                          x={index * slot + slot * 0.12}
-                          y={RIBBON_HEIGHT - height}
-                          width={Math.max(1.5, slot * 0.76)}
-                          height={height}
-                          rx={1.5}
-                          // One month is coloured because it is the story. Colouring all twelve
-                          // would say nothing at all.
-                          fill={week.month === bestMonth ? Colors.brand : '#C9D6C0'}
-                        />
-                      );
-                    })}
-                  </Svg>
-
-                  {/* A letter sits over the middle of its own weeks, so it points at its bars.
-                      Twelve evenly-spaced letters under a ribbon that stops in October lined up
-                      with nothing. */}
-                  <View style={styles.months}>
-                    {monthSpans.map((span) => (
-                      <ThemedText
-                        key={span.month}
-                        type="caption"
-                        themeColor="textSecondary"
-                        style={[
-                          styles.month,
-                          { left: (span.start + span.weeks / 2) * (ribbonWidth / weeks.length) - 6 }
-                        ]}>
-                        {MONTH_LETTERS[span.month]}
-                      </ThemedText>
-                    ))}
-                  </View>
-                </>
-              ) : null}
-            </View>
-          </Section>
-        ) : null}
-
-        {thisYear && genres.length ? (
-          <Section eyebrow="What you read">
-            <Sentence>
-              Mostly <Em>{genres[0].name.toLowerCase()}</Em>
-              {genres[1]
-                ? `, with ${genres[1].count} ${plural(genres[1].count, 'book')} of ${genres[1].name.toLowerCase()}.`
-                : '.'}
-            </Sentence>
-
+        {genre ? (
+          <View style={styles.block}>
+            <ThemedText style={styles.blockTitle}>What you read</ThemedText>
+            <ThemedText style={styles.say}>
+              {genre.lead}
+              <ThemedText style={styles.sayFigure}>{genre.figure}</ThemedText>
+              {genre.tail}
+            </ThemedText>
             <View style={styles.genreBar}>
-              {genres.map((genre, index) => (
+              {stats.genres.slice(0, RAMP.length).map((entry, position) => (
                 <View
-                  key={genre.name}
-                  style={{ flex: genre.count, backgroundColor: GENRE_COLORS[index % GENRE_COLORS.length] }}
+                  key={entry.genre}
+                  style={{ flexGrow: entry.count, flexShrink: 1, flexBasis: 0, borderRadius: 3, backgroundColor: RAMP[position] }}
                 />
               ))}
             </View>
-
-            <View style={styles.genreLegend}>
-              {genres.map((genre, index) => (
-                <View key={genre.name} style={styles.genreItem}>
-                  <View style={[styles.dot, { backgroundColor: GENRE_COLORS[index % GENRE_COLORS.length] }]} />
-                  <ThemedText type="small" style={styles.genreName} numberOfLines={1}>
-                    {genre.name}
-                  </ThemedText>
-                  <ThemedText type="small" style={styles.genreCount}>
-                    {genre.count}
+            <View style={styles.legend}>
+              {stats.genres.slice(0, RAMP.length).map((entry, position) => (
+                <View key={entry.genre} style={styles.legendItem}>
+                  <View style={[styles.swatch, { backgroundColor: RAMP[position] }]} />
+                  <ThemedText style={styles.legendText}>
+                    {`${entry.genre} `}
+                    <ThemedText style={styles.legendCount}>{entry.count}</ThemedText>
                   </ThemedText>
                 </View>
               ))}
             </View>
+          </View>
+        ) : null}
 
-            {shelf.themes.length ? (
-              <>
-                <ThemedText type="small" themeColor="textSecondary" style={styles.themesLead}>
-                  The themes that kept coming back
-                </ThemedText>
-                <View style={styles.themes}>
-                  {shelf.themes.map((theme) => (
-                    <View key={theme.theme} style={styles.theme}>
-                      <ThemedText type="small" numberOfLines={1} style={styles.themeName}>
-                        {theme.theme}
-                      </ThemedText>
-                      <View style={styles.themeTrack}>
-                        <View
-                          style={[
-                            styles.themeFill,
-                            { width: `${Math.round((theme.count / shelf.themes[0].count) * 100)}%` }
-                          ]}
-                        />
-                      </View>
-                      <ThemedText type="caption" themeColor="textSecondary" style={styles.themeCount}>
-                        {theme.count}
-                      </ThemedText>
+        <View style={styles.block}>
+          <ThemedText style={styles.blockTitle}>Lending</ThemedText>
+          <ThemedText style={styles.say}>
+            {lending.lead}
+            <ThemedText style={styles.sayFigure}>{lending.figure}</ThemedText>
+            {lending.tail}
+          </ThemedText>
+        </View>
+
+        <View style={styles.rightNow}>
+          <ThemedText style={styles.blockTitle}>Right now</ThemedText>
+
+          {showing.length ? (
+            <View style={styles.nowList}>
+              {showing.map((loan, position) => {
+                const status = loanStatus(loan, now);
+                const sent = nudged.includes(loan.id);
+                return (
+                  <View key={loan.id} style={[styles.out, position > 0 && styles.rowDivided]}>
+                    <View style={styles.avatar}>
+                      <ThemedText style={styles.avatarText}>{initials(loan.borrower?.name ?? '?')}</ThemedText>
                     </View>
-                  ))}
-                </View>
-              </>
-            ) : null}
-          </Section>
-        ) : null}
-
-        {shelf.lending.loans > 0 ? (
-          <Section eyebrow="Lending">
-            <Sentence>
-              <Em>
-                {shelf.lending.friends} {plural(shelf.lending.friends, 'friend')}
-              </Em>{' '}
-              borrowed {shelf.lending.loans} of your books this year.
-            </Sentence>
-
-            {shelf.lending.onTimeRate !== null ? (
-              <>
-                <View style={styles.meter}>
-                  <View style={[styles.meterFill, { width: `${Math.round(shelf.lending.onTimeRate * 100)}%` }]} />
-                </View>
-                <View style={styles.meterCaption}>
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    {Math.round(shelf.lending.onTimeRate * 100)}% came back on time
-                  </ThemedText>
-                  {shelf.lending.averageDays !== null ? (
-                    <ThemedText type="caption" themeColor="textSecondary">
-                      {Math.round(shelf.lending.averageDays)} days on average
-                    </ThemedText>
-                  ) : null}
-                </View>
-              </>
-            ) : (
-              <ThemedText type="caption" themeColor="textSecondary" style={styles.nothingBack}>
-                Nothing has come back yet.
-              </ThemedText>
-            )}
-
-            <View style={styles.borrowers}>
-              {shelf.lending.topBorrowers.map((borrower) => (
-                <View key={borrower.name} style={styles.borrower}>
-                  <View style={styles.avatar}>
-                    <ThemedText type="caption" style={styles.avatarText}>
-                      {borrower.name.slice(0, 2).toUpperCase()}
-                    </ThemedText>
+                    <View style={styles.rowText}>
+                      <ThemedText numberOfLines={1} style={styles.outTitle}>
+                        {`${loan.borrower?.name} has ${loan.book?.title}`}
+                      </ThemedText>
+                      <ThemedText style={[styles.outStatus, status.late && styles.outLate]}>{status.text}</ThemedText>
+                    </View>
+                    {status.late ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={sent ? 'Reminder sent' : `Nudge ${loan.borrower?.name}`}
+                        disabled={sent}
+                        onPress={() => nudge(loan)}
+                        style={({ pressed }) => [styles.nudge, sent && styles.nudgeSent, pressed && styles.pressed]}>
+                        <Icon name={sent ? 'check' : 'bell'} color={sent ? Colors.text : Colors.textOnDark} size={16} />
+                        <ThemedText style={[styles.nudgeLabel, sent && styles.nudgeLabelSent]}>
+                          {sent ? 'Sent' : 'Nudge'}
+                        </ThemedText>
+                      </Pressable>
+                    ) : null}
                   </View>
-                  <ThemedText type="small" style={styles.borrowerName} numberOfLines={1}>
-                    {borrower.name}
-                  </ThemedText>
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    {borrower.count} {plural(borrower.count, 'book')}
-                  </ThemedText>
-                </View>
-              ))}
+                );
+              })}
             </View>
-          </Section>
-        ) : null}
+          ) : (
+            <ThemedText style={styles.empty}>Nothing is out on loan.</ThemedText>
+          )}
 
-        <ThemedText type="caption" themeColor="textSecondary" style={styles.foot}>
-          {overview.books.toLocaleString()} on the shelf ·{' '}
-          {Math.max(0, overview.books - overview.booksRead).toLocaleString()} not read yet · {overview.activeLoans} out
-          right now
-        </ThemedText>
+          {data.overview.activeLoans > showing.length ? (
+            <Pressable accessibilityRole="button" onPress={() => router.push('/loans')} style={styles.allRow}>
+              <ThemedText style={styles.link}>{`See all ${data.overview.activeLoans} lent out`}</ThemedText>
+            </Pressable>
+          ) : null}
+
+          {unread > 0 ? (
+            <>
+              <ThemedText style={[styles.say, styles.unread]}>
+                <ThemedText style={styles.sayFigure}>{unread}</ThemedText>
+                {` of your ${data.overview.books.toLocaleString('en-GB')} books are unread.`}
+              </ThemedText>
+              {paceLine(unread, stats.count) ? (
+                <ThemedText style={styles.sub}>{paceLine(unread, stats.count)}</ThemedText>
+              ) : null}
+            </>
+          ) : null}
+        </View>
       </ScrollView>
+
+      <ShareSheet
+        visible={sharing}
+        onClose={() => setSharing(false)}
+        stats={stats}
+        handle="bookmack.com"
+        title={`${firstName}’s ${stats.year}`}
+      />
     </ThemedView>
   );
 }
 
-function Section({ eyebrow, children }: { eyebrow: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <ThemedText type="caption" style={styles.sectionEyebrow}>
-        {eyebrow.toUpperCase()}
-      </ThemedText>
-      {children}
-    </View>
-  );
-}
-
-function Sentence({ children }: { children: React.ReactNode }) {
-  return <ThemedText style={styles.sentence}>{children}</ThemedText>;
-}
-
-function Em({ children }: { children: React.ReactNode }) {
-  return <ThemedText style={styles.em}>{children}</ThemedText>;
-}
-
-// Days to weeks, each week keeping its month so one can be picked out of the ribbon. Weeks with
-// no reading stay in as gaps rather than being dropped: a quiet fortnight is part of the shape of
-// a year, and closing it up would draw a year nobody had.
-function buildWeeks(activity: ActivityDay[], year?: number, now?: number) {
-  if (!year || !now) return [];
-  const byDay = new Map(activity.map((day) => [day.date, day.pages]));
-  const start = Date.UTC(year, 0, 1);
-  const weeks: { month: number; pages: number }[] = [];
-
-  for (let index = 0; start + index * 7 * 86400000 <= now && weeks.length < WEEKS; index += 1) {
-    const weekStart = new Date(start + index * 7 * 86400000);
-    let pages = 0;
-    for (let day = 0; day < 7; day += 1) {
-      pages += byDay.get(new Date(weekStart.getTime() + day * 86400000).toISOString().slice(0, 10)) ?? 0;
-    }
-    weeks.push({ month: weekStart.getUTCMonth(), pages });
-  }
-  return weeks;
-}
-
-type Highlight = { key: string; book: YearShelfData['books'][number]; value: string; unit: string };
-
-// Four facts about the year, each anchored to a book you can see. Every one is left out rather
-// than faked when what it needs is missing: a "quickest" worked out from books that were never
-// started would just be whichever one the catalogue knew least about.
-function buildHighlights(books: YearShelfData['books']): Highlight[] {
-  if (!books.length) return [];
-  const out: Highlight[] = [];
-
-  const withPages = books.filter((book) => book.pageCount);
-  if (withPages.length) {
-    const longest = [...withPages].sort((a, b) => (b.pageCount ?? 0) - (a.pageCount ?? 0))[0];
-    out.push({ key: 'Longest', book: longest, value: (longest.pageCount ?? 0).toLocaleString(), unit: 'pages' });
-  }
-
-  const timed = books.filter((book) => book.days !== null);
-  if (timed.length) {
-    const quickest = [...timed].sort((a, b) => (a.days ?? 0) - (b.days ?? 0))[0];
-    out.push({
-      key: 'Quickest',
-      book: quickest,
-      value: String(quickest.days),
-      unit: plural(quickest.days ?? 0, 'day')
-    });
-
-    const slowest = [...timed].sort((a, b) => (b.days ?? 0) - (a.days ?? 0))[0];
-    // Only when it is a different book and genuinely took a while: "took its time, 1 month" about
-    // the book that was also the quickest is not a highlight.
-    if (slowest.id !== quickest.id && (slowest.days ?? 0) >= 30) {
-      const months = Math.round((slowest.days ?? 0) / 30);
-      out.push({ key: 'Took its time', book: slowest, value: String(months), unit: plural(months, 'month') });
-    }
-  }
-
-  const lent = [...books].sort((a, b) => b.timesLent - a.timesLent)[0];
-  if (lent.timesLent > 0) {
-    out.push({
-      key: 'Lent the most',
-      book: lent,
-      value: String(lent.timesLent),
-      unit: plural(lent.timesLent, 'time')
-    });
-  }
-
-  return out;
-}
-
-function buildGenres(books: YearShelfData['books']) {
-  const counts = new Map<string, number>();
-  books.forEach((book) => {
-    if (book.category) counts.set(book.category, (counts.get(book.category) ?? 0) + 1);
-  });
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, GENRE_COLORS.length)
-    .map(([name, count]) => ({ name, count }));
-}
-
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1
-  },
-  loading: {
-    padding: Spacing.three
-  },
-  barRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two
-  },
-  barTitle: {
-    flex: 1,
-    minWidth: 0
-  },
-  range: {
-    width: 176,
-    flexShrink: 0
-  },
+  flex: { flex: 1 },
+  loading: { gap: Spacing.three, padding: Spacing.three },
   content: {
-    paddingBottom: Spacing.six,
+    paddingHorizontal: Spacing.three + 8,
+    paddingTop: 2,
+    paddingBottom: 128,
     width: '100%',
     maxWidth: MaxContentWidth,
     alignSelf: 'center'
   },
 
-  hero: {
-    backgroundColor: Colors.buttonPrimary,
-    borderBottomLeftRadius: Radius.sheet,
-    borderBottomRightRadius: Radius.sheet,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.four,
-    paddingBottom: Spacing.four
-  },
-  eyebrow: {
-    color: Colors.accent,
-    fontFamily: Fonts.bodyBold,
-    letterSpacing: 1.4
-  },
-  // The display token rather than numbers of its own. This was 40/43 at -1.2 letterSpacing —
-  // larger and tighter than anything else in the app, including the scale's own largest size —
-  // which made the hero tower over a page whose next heading is a 12px eyebrow. Spreading the
-  // token means it cannot drift back out of the scale.
-  heroHeadline: {
-    ...Typography.display,
-    color: '#F2F8EC',
-    marginTop: Spacing.two
-  },
-  heroCount: {
-    ...Typography.display,
-    color: Colors.accent
-  },
-  heroSub: {
-    color: '#A9C29A',
-    marginTop: Spacing.two
-  },
-  heroSubStrong: {
-    color: '#F2F8EC',
-    fontFamily: Fonts.bodySemiBold
-  },
-  shelfWrap: {
-    marginTop: Spacing.four
-  },
-  make: {
-    height: 50,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.accent,
+  headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginLeft: -10 },
+  yearRow: { flexDirection: 'row', alignItems: 'center' },
+  step: { width: 40, height: 40, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center' },
+  stepDim: { opacity: 0.25 },
+  yearValue: { fontFamily: Fonts.bodyBold, fontSize: 15, lineHeight: 20, minWidth: 44, textAlign: 'center' },
+  sharePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    marginTop: Spacing.four
+    gap: 7,
+    height: 40,
+    paddingLeft: 13,
+    paddingRight: 16,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.brandTint
   },
-  pressed: {
-    opacity: 0.85
-  },
-  makeText: {
-    color: '#163300'
-  },
-  heroNote: {
-    color: '#89A178',
-    textAlign: 'center',
-    marginTop: Spacing.three
-  },
+  shareLabel: { fontFamily: Fonts.bodyBold, fontSize: 14, lineHeight: 18, color: Colors.text },
 
-  section: {
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.five
-  },
-  sectionEyebrow: {
-    color: Colors.brand,
-    fontFamily: Fonts.bodyBold,
-    letterSpacing: 1.4
-  },
-  sentence: {
-    fontFamily: Fonts.heading,
-    fontSize: 22,
-    lineHeight: 28,
-    letterSpacing: -0.4,
-    color: Colors.text,
-    marginTop: Spacing.two
-  },
-  em: {
-    fontFamily: Fonts.heading,
-    fontSize: 22,
-    lineHeight: 28,
-    letterSpacing: -0.4,
-    color: Colors.brand
-  },
+  label: { fontFamily: Fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: Colors.textSecondary, marginTop: 20 },
+  bigRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 2 },
+  bigNumber: { fontFamily: Fonts.display, fontSize: 104, lineHeight: 96, letterSpacing: -4, color: Colors.text },
+  bigOf: { fontFamily: Fonts.bodySemiBold, fontSize: 22, lineHeight: 28, color: Colors.textSecondary },
 
-  highlights: {
-    marginTop: Spacing.three,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  goalTrack: { marginTop: 18, height: 6, borderRadius: 3, backgroundColor: Colors.border, overflow: 'hidden' },
+  goalFill: { height: '100%', borderRadius: 3, backgroundColor: Colors.text },
+  caption: { fontFamily: Fonts.body, fontSize: 14.5, lineHeight: 21, color: Colors.textSecondary, marginTop: 12 },
+  captionLink: { marginTop: 14 },
+  link: { fontFamily: Fonts.bodyBold, fontSize: 14, lineHeight: 20, color: Colors.brand },
+
+  trio: {
+    flexDirection: 'row',
+    marginTop: 26,
+    paddingTop: 18,
+    borderTopWidth: 1,
     borderTopColor: Colors.border
   },
-  highlight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.border
-  },
-  highlightText: {
-    flex: 1,
-    minWidth: 0
-  },
-  kicker: {
-    color: Colors.disabledText,
-    fontFamily: Fonts.bodyBold,
-    letterSpacing: 1
-  },
-  highlightValue: {
-    alignItems: 'flex-end'
-  },
-  valueNumber: {
-    fontFamily: Fonts.display,
-    fontSize: 19,
-    lineHeight: 23,
-    color: Colors.text
-  },
+  trioCell: { flex: 1 },
+  trioValue: { fontFamily: Fonts.heading, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: Colors.text },
+  trioLabel: { fontFamily: Fonts.body, fontSize: 12.5, lineHeight: 18, color: Colors.textSecondary },
 
-  ribbon: {
-    marginTop: Spacing.three
-  },
-  months: {
-    height: 18,
-    marginTop: Spacing.one
-  },
-  month: {
-    position: 'absolute',
-    width: 12,
-    textAlign: 'center'
-  },
+  block: { marginTop: 42 },
+  blockHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  blockTitle: { fontFamily: Fonts.bodySemiBold, fontSize: 13, lineHeight: 18, color: Colors.textSecondary },
+  selected: { fontFamily: Fonts.bodyBold, fontSize: 14, lineHeight: 18, color: Colors.text },
 
-  genreBar: {
-    flexDirection: 'row',
-    height: 16,
-    gap: 2,
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginTop: Spacing.three
-  },
-  genreLegend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: Spacing.two
-  },
-  genreItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    width: '50%',
-    paddingVertical: Spacing.one,
-    paddingRight: Spacing.two
-  },
-  dot: {
-    width: 9,
-    height: 9,
-    borderRadius: 3
-  },
-  genreName: {
-    flex: 1,
-    fontFamily: Fonts.bodySemiBold
-  },
-  genreCount: {
-    fontFamily: Fonts.bodySemiBold,
-    fontVariant: ['tabular-nums']
-  },
-  themesLead: {
-    marginTop: Spacing.four
-  },
-  themes: {
-    marginTop: Spacing.two,
-    gap: Spacing.two
-  },
-  theme: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two
-  },
-  themeName: {
-    width: 120,
-    fontFamily: Fonts.bodySemiBold
-  },
-  themeTrack: {
-    flex: 1
-  },
-  themeFill: {
-    height: 6,
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3,
-    backgroundColor: Colors.brand
-  },
-  themeCount: {
-    width: 22,
-    textAlign: 'right',
-    fontVariant: ['tabular-nums']
-  },
+  list: { marginTop: 16, minHeight: 80 },
+  row: { flexDirection: 'row', gap: 14, alignItems: 'center', paddingVertical: 10 },
+  rowDivided: { borderTopWidth: 1, borderTopColor: HAIRLINE },
+  rowText: { flex: 1, minWidth: 0 },
+  rowTitle: { fontFamily: Fonts.bodyBold, fontSize: 15, lineHeight: 19, color: Colors.text },
+  rowAuthor: { fontFamily: Fonts.body, fontSize: 13, lineHeight: 18, color: Colors.textSecondary },
+  rowDays: { fontFamily: Fonts.body, fontSize: 13, lineHeight: 18, color: Colors.textSecondary, paddingLeft: 10 },
+  empty: { fontFamily: Fonts.body, fontSize: 14, lineHeight: 20, color: FAINT, paddingVertical: 12 },
 
-  meter: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.brandTint,
-    overflow: 'hidden',
-    marginTop: Spacing.three
+  say: {
+    fontFamily: Fonts.heading,
+    fontSize: 21,
+    lineHeight: 26,
+    letterSpacing: -0.3,
+    color: Colors.text,
+    marginTop: 8
   },
-  meterFill: {
-    height: '100%',
-    borderRadius: 4,
-    backgroundColor: Colors.brand
-  },
-  meterCaption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: Spacing.two
-  },
-  nothingBack: {
-    marginTop: Spacing.three
-  },
-  borrowers: {
-    marginTop: Spacing.two
-  },
-  borrower: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.two
-  },
+  sayFigure: { color: Colors.brand },
+  genreBar: { flexDirection: 'row', gap: 3, height: 10, marginTop: 16 },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 6, columnGap: 16, marginTop: 12 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  swatch: { width: 8, height: 8, borderRadius: 2 },
+  legendText: { fontFamily: Fonts.body, fontSize: 13, lineHeight: 18, color: Colors.textSecondary },
+  legendCount: { fontFamily: Fonts.bodyBold, color: Colors.text },
+
+  rightNow: { marginTop: 46, paddingTop: 24, borderTopWidth: 1, borderTopColor: Colors.border },
+  nowList: { marginTop: 6 },
+  out: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 },
   avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: Radius.pill,
     backgroundColor: Colors.brandTint,
     alignItems: 'center',
     justifyContent: 'center'
   },
-  avatarText: {
-    color: Colors.brand,
-    fontFamily: Fonts.bodyBold
+  avatarText: { fontFamily: Fonts.bodyBold, fontSize: 13, lineHeight: 18, color: Colors.text },
+  outTitle: { fontFamily: Fonts.bodyBold, fontSize: 15, lineHeight: 19, color: Colors.text },
+  outStatus: { fontFamily: Fonts.body, fontSize: 13, lineHeight: 18, color: Colors.textSecondary },
+  outLate: { fontFamily: Fonts.bodySemiBold, color: Colors.danger },
+  nudge: {
+    marginLeft: 'auto',
+    height: 36,
+    paddingHorizontal: 15,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.buttonPrimary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
   },
-  borrowerName: {
-    flex: 1,
-    fontFamily: Fonts.bodySemiBold
-  },
+  nudgeSent: { backgroundColor: Colors.brandTint },
+  nudgeLabel: { fontFamily: Fonts.bodyBold, fontSize: 13.5, lineHeight: 18, color: Colors.textOnDark },
+  nudgeLabelSent: { color: Colors.text },
+  allRow: { height: 40, justifyContent: 'center', marginTop: 6 },
+  unread: { marginTop: 22 },
+  sub: { fontFamily: Fonts.body, fontSize: 14.5, lineHeight: 21, color: Colors.textSecondary, marginTop: 6 },
 
-  foot: {
-    textAlign: 'center',
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.five
-  }
+  pressed: { opacity: 0.85 }
 });

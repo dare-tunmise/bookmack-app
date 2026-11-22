@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { api, type Schemas } from '@/api/client';
+import { useSession } from '@/auth/session';
 import { errorMessage, toApiError } from '@/api/errors';
 import { useAppActions } from '@/components/app-actions';
 import { AppBar } from '@/components/app-bar';
@@ -13,6 +14,8 @@ import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
 import { usePendingRequests } from '@/components/pending-requests';
+import { ShareSheet } from '@/components/share-sheet';
+import { cardDataFromBooks } from '@/components/share-cards';
 import { ReadingList } from '@/components/reading-list';
 import { ReadingSheet } from '@/components/reading-sheet';
 import { useSnackbar } from '@/components/snackbar';
@@ -74,6 +77,7 @@ export default function LibraryScreen() {
   // for them rather than owning them.
   const { openAdd, libraryVersion } = useAppActions();
   const snackbar = useSnackbar();
+  const { user } = useSession();
   // The drawer's request badge is counted locally, so answering a request here has to take it off
   // the badge as well — otherwise it keeps claiming someone is still waiting.
   const { decrement: decrementPending } = usePendingRequests();
@@ -232,6 +236,9 @@ export default function LibraryScreen() {
   // Choosing books for a poster. Null means not selecting at all — the mode only exists after a
   // long press, which is the gesture Android people already use for this everywhere else.
   const [picking, setPicking] = useState<Set<string> | null>(null);
+  // The books a selection ended with, kept while the share sheet is open: `picking` is cleared
+  // the moment Share is pressed so the selection bar goes away with it.
+  const [sharing, setSharing] = useState<Book[] | null>(null);
 
   const togglePick = (book: Book) => {
     setPicking((current) => {
@@ -460,12 +467,13 @@ export default function LibraryScreen() {
       {picking ? (
         <View style={styles.pickBar}>
           <Button
-            title={picking.size < 2 ? 'Pick at least two books' : `Make a poster of ${picking.size}`}
+            title={picking.size < 2 ? 'Pick at least two books' : `Share ${picking.size} books`}
             disabled={picking.size < 2}
             onPress={() => {
-              const ids = [...picking].join(',');
+              // The books themselves rather than their ids: the sheet draws them, and the old
+              // poster screen's round trip through the route only existed to fetch them again.
+              setSharing(books.filter((book) => picking.has(book.id)));
               setPicking(null);
-              router.push({ pathname: '/poster', params: { bookIds: ids } });
             }}
           />
         </View>
@@ -503,6 +511,20 @@ export default function LibraryScreen() {
             setPageBook(null);
             router.push({ pathname: '/edit-book', params: { id: pageBook.id } });
           }}
+        />
+      ) : null}
+
+      {/* The same sheet Stats opens, with the Covers card alone: a set of books picked by hand is
+          not a year, so the Numbers card has nothing true to say about it. */}
+      {sharing ? (
+        <ShareSheet
+          visible
+          onClose={() => setSharing(null)}
+          stats={cardDataFromBooks(sharing, new Date().getFullYear())}
+          handle="bookmack.com"
+          heading={`Share ${sharing.length} books`}
+          title={`${(user?.name ?? '').trim().split(/\s+/)[0] || 'My'}\u2019s picks`}
+          only={['Covers']}
         />
       ) : null}
     </ThemedView>

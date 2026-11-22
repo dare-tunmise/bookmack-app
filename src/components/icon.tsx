@@ -14,6 +14,7 @@ import { BellIcon } from 'phosphor-react-native/src/icons/Bell';
 import { BookOpenIcon } from 'phosphor-react-native/src/icons/BookOpen';
 import { BooksIcon } from 'phosphor-react-native/src/icons/Books';
 import { CaretDownIcon } from 'phosphor-react-native/src/icons/CaretDown';
+import { CaretLeftIcon } from 'phosphor-react-native/src/icons/CaretLeft';
 import { CaretRightIcon } from 'phosphor-react-native/src/icons/CaretRight';
 import { CaretUpIcon } from 'phosphor-react-native/src/icons/CaretUp';
 import { ChartPieSliceIcon } from 'phosphor-react-native/src/icons/ChartPieSlice';
@@ -21,7 +22,9 @@ import { CheckIcon } from 'phosphor-react-native/src/icons/Check';
 import { ClockIcon } from 'phosphor-react-native/src/icons/Clock';
 import { CreditCardIcon } from 'phosphor-react-native/src/icons/CreditCard';
 import { DeviceMobileIcon } from 'phosphor-react-native/src/icons/DeviceMobile';
+import { DownloadSimpleIcon } from 'phosphor-react-native/src/icons/DownloadSimple';
 import { EnvelopeIcon } from 'phosphor-react-native/src/icons/Envelope';
+import { ExportIcon } from 'phosphor-react-native/src/icons/Export';
 import { EyeIcon } from 'phosphor-react-native/src/icons/Eye';
 import { EyeSlashIcon } from 'phosphor-react-native/src/icons/EyeSlash';
 import { FileTextIcon } from 'phosphor-react-native/src/icons/FileText';
@@ -92,11 +95,16 @@ const ICONS = {
   users: UsersIcon,
   bell: BellIcon,
   settings: GearIcon,
+  chevronLeft: CaretLeftIcon,
   chevronRight: CaretRightIcon,
   // The sidebar's Library group, which opens its own tabs in place.
   chevronDown: CaretDownIcon,
   chevronUp: CaretUpIcon,
   // A pie with one slice lifted clear — which is what the Stats screen leads with.
+  // The share sheet's two actions. `share` is Export rather than ShareNetwork: the sheet hands
+  // the card to Android's own share sheet, which is a thing leaving the app, not a social graph.
+  share: ExportIcon,
+  save: DownloadSimpleIcon,
   stats: ChartPieSliceIcon,
   clock: ClockIcon,
   user: UserIcon,

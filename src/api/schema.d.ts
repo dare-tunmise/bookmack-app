@@ -457,7 +457,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download your collection (CSV needs Basic, PDF needs Premium) */
+        /** Download your collection as CSV or PDF (both need Premium) */
         get: operations["exportBooks"];
         put?: never;
         post?: never;
@@ -1142,6 +1142,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a blog page view */
+        post: operations["recordBlogView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/views/engage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a blog view as actually read */
+        post: operations["recordBlogEngagement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blog readership, one row per post (admin) */
+        get: operations["getBlogAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/analytics/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Readership for one post: 30-day series, countries, referrers, devices (admin) */
+        get: operations["getBlogPostAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/signups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who has joined the waiting list and who has registered (admin) */
+        get: operations["getSignups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1170,6 +1255,8 @@ export interface components {
             avatarUrl: string | null;
             language: string;
             timezone: string;
+            /** @description Books aimed at this year; null when none is set */
+            readingGoal: number | null;
             notificationSettings: {
                 emailReminders: boolean;
                 dueDateAlerts: boolean;
@@ -1733,6 +1820,10 @@ export interface components {
             lending: {
                 loans: number;
                 friends: number;
+                /** @description How many of those loans have come back */
+                returned: number;
+                /** @description How many came back by the due date — a count, because onTimeRate is a fraction of the returned ones and cannot be multiplied back out */
+                onTime: number;
                 /** @description Null until a loan has come back */
                 onTimeRate: number | null;
                 averageDays: number | null;
@@ -2151,6 +2242,7 @@ export interface operations {
                     /** @enum {string} */
                     language?: "en" | "es" | "fr" | "de";
                     timezone?: string;
+                    readingGoal?: number | null;
                     notificationSettings?: {
                         emailReminders?: boolean;
                         dueDateAlerts?: boolean;
@@ -4398,6 +4490,228 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    recordBlogView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    slug: string;
+                    /** @description Reduced to a bare host before it is stored; the path is never kept */
+                    referrer?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Taken, or deliberately ignored — the caller cannot tell which */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    recordBlogEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    slug: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Taken, or deliberately ignored — the caller cannot tell which */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getBlogAnalytics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-post and site-wide readership */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            posts: {
+                                slug: string;
+                                views: number;
+                                visitors: number;
+                                engaged: number;
+                                lastViewedAt: string | null;
+                            }[];
+                            totals: {
+                                views: number;
+                                /** @description Distinct readers, counted by a daily-rotating hash — never an identity */
+                                visitors: number;
+                                /** @description Views where the reader stayed long enough to be reading rather than bouncing */
+                                engaged: number;
+                            };
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getBlogPostAnalytics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Readership for one post */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            slug: string;
+                            totals: {
+                                views: number;
+                                /** @description Distinct readers, counted by a daily-rotating hash — never an identity */
+                                visitors: number;
+                                /** @description Views where the reader stayed long enough to be reading rather than bouncing */
+                                engaged: number;
+                                lastViewedAt: string | null;
+                            };
+                            /** @description One point per day for the last 30 days, gaps filled with zeroes */
+                            series: {
+                                /** Format: date */
+                                date: string;
+                                views: number;
+                                visitors: number;
+                            }[];
+                            countries: {
+                                name: string;
+                                count: number;
+                            }[];
+                            referrers: {
+                                name: string;
+                                count: number;
+                            }[];
+                            devices: {
+                                name: string;
+                                count: number;
+                            }[];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getSignups: {
+        parameters: {
+            query?: {
+                /** @description How many of the most recent rows to return, in each list */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signups, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            waitlist: {
+                                total: number;
+                                notified: number;
+                                last7Days: number;
+                                /** @description Which page or article sent them — the only way to tell what is working */
+                                bySource: {
+                                    name: string;
+                                    count: number;
+                                }[];
+                                recent: {
+                                    id: string;
+                                    email: string;
+                                    /** @description Where they signed up. A blog post reads 'blog:<slug>'. */
+                                    source: string;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                    /** @description When they were told the app is out. Nothing writes this yet. */
+                                    notifiedAt: string | null;
+                                }[];
+                            };
+                            accounts: {
+                                total: number;
+                                verified: number;
+                                premium: number;
+                                last7Days: number;
+                                recent: {
+                                    id: string;
+                                    name: string;
+                                    email: string;
+                                    /** @enum {string} */
+                                    plan: "free" | "premium";
+                                    isVerified: boolean;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                }[];
+                            };
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
